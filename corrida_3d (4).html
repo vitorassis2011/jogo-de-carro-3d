@@ -1,0 +1,3099 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrida 3D</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            overflow: hidden;
+            background: #111;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        canvas { display: block; }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #ui h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+        #ui p {
+            font-size: 16px;
+            opacity: 0.9;
+            line-height: 1.5;
+        }
+        #velocidade {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            font-size: 42px;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 2px 12px rgba(0,0,0,0.9);
+            z-index: 10;
+            text-align: right;
+        }
+        #nitroInfo {
+            position: absolute;
+            bottom: 85px;
+            right: 30px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffaa00;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.9);
+            z-index: 10;
+            text-align: right;
+        }
+        #nitroBar {
+            position: absolute;
+            bottom: 115px;
+            right: 30px;
+            width: 160px;
+            height: 10px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 5px;
+            overflow: hidden;
+            z-index: 10;
+        }
+        #nitroFill {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #ff6600, #ffaa00);
+            border-radius: 5px;
+            transition: width 0.1s linear;
+        }
+        #instrucoes {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            color: rgba(255,255,255,0.7);
+            font-size: 14px;
+            z-index: 10;
+        }
+        #mensagem {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 32px;
+            font-weight: 700;
+            text-shadow: 0 4px 20px rgba(0,0,0,0.9);
+            text-align: center;
+            z-index: 20;
+            opacity: 0;
+            transition: opacity 0.4s;
+            pointer-events: none;
+        }
+        #mensagem.show { opacity: 1; }
+    </style>
+</head>
+<body>
+    <!-- HUD estilo TurboChase -->
+    <div id="tituloJogo" style="position:absolute;top:14px;left:16px;z-index:11;font-weight:800;font-size:22px;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,0.85);pointer-events:none;font-family:system-ui,sans-serif;">
+        TurboChase <span style="font-size:13px;opacity:0.75;font-weight:600;">v2.0</span>
+    </div>
+    <div id="hudStats" style="position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:11;display:flex;gap:18px;align-items:center;pointer-events:none;text-shadow:0 2px 8px rgba(0,0,0,0.9);font-weight:700;font-size:18px;color:#fff;">
+        <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:22px;">🏆</span><span id="pontosInfo">0</span></div>
+        <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:20px;">🛣️</span><span id="kmInfo">0m</span></div>
+        <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:20px;">🪙</span><span id="moedasInfo">0</span></div>
+    </div>
+    <div id="policiaInfo" style="position:absolute;top:48px;left:50%;transform:translateX(-50%);z-index:11;font-size:16px;font-weight:700;color:#ff3333;text-shadow:0 2px 8px rgba(0,0,0,0.9);pointer-events:none;text-align:center;min-height:20px;"></div>
+
+    <!-- Minimapa canto inferior esquerdo estilo imagem 2 -->
+    <div id="minimapWrap" style="position:absolute;bottom:24px;left:20px;z-index:10;padding:8px;background:#1a1a1a;border-radius:18px;box-shadow:0 4px 20px rgba(0,0,0,0.6);">
+        <canvas id="minimap" width="160" height="160" style="display:block;border-radius:12px;background:#222;"></canvas>
+        <div id="nitroBar" style="position:relative;bottom:auto;right:auto;width:160px;height:8px;margin-top:8px;background:#333;border-radius:4px;overflow:hidden;">
+            <div id="nitroFill" style="height:100%;width:100%;background:linear-gradient(90deg,#ff6600,#ffaa00);border-radius:4px;"></div>
+        </div>
+    </div>
+
+    <div id="nitroInfo" style="display:none;"></div>
+    <div id="velocidade">0 km/h</div>
+    <div id="mensagem"></div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // ==================== CONFIG ====================
+        const scene = new THREE.Scene();
+        // ===== DIA =====
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 120, 480);
+
+        // ===== NUVENS =====
+        const nuvens = [];
+        function criarNuvem(x, y, z, escala) {
+            const g = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.9,
+                roughness: 1,
+                metalness: 0
+            });
+            const partes = [
+                [0, 0, 0, 1],
+                [1.2, 0.15, 0.3, 0.85],
+                [-1.1, 0.1, -0.2, 0.8],
+                [0.4, 0.5, -0.4, 0.7],
+                [-0.5, 0.4, 0.5, 0.65],
+                [1.8, -0.05, -0.1, 0.6],
+                [-1.7, 0, 0.2, 0.55],
+                [0.8, 0.3, 0.8, 0.5],
+                [-0.9, 0.25, -0.6, 0.55]
+            ];
+            partes.forEach(([px, py, pz, s]) => {
+                const blob = new THREE.Mesh(
+                    new THREE.SphereGeometry(2.2 * s, 10, 8),
+                    mat
+                );
+                blob.position.set(px * 2.5, py * 2, pz * 2);
+                blob.scale.y = 0.55;
+                g.add(blob);
+            });
+            g.position.set(x, y, z);
+            g.scale.setScalar(escala);
+            scene.add(g);
+            nuvens.push({ mesh: g, vel: 0.25 + Math.random() * 0.5, baseX: x });
+        }
+        // Muitas nuvens no céu
+        for (let i = 0; i < 100; i++) {
+            const nx = (Math.random() - 0.5) * 1800;
+            const nz = (Math.random() - 0.5) * 1800;
+            const ny = 38 + Math.random() * 60;
+            const esc = 1.2 + Math.random() * 4;
+            criarNuvem(nx, ny, nz, esc);
+        }
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 600);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // Luzes de dia
+        const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+        scene.add(ambient);
+
+        const hemi = new THREE.HemisphereLight(0x87CEEB, 0x445533, 0.35);
+        scene.add(hemi);
+
+        const sun = new THREE.DirectionalLight(0xfff5e0, 1.25);
+        sun.position.set(120, 180, 80);
+        sun.castShadow = true;
+        sun.shadow.mapSize.set(2048, 2048);
+        sun.shadow.camera.near = 1;
+        sun.shadow.camera.far = 600;
+        sun.shadow.camera.left = -300;
+        sun.shadow.camera.right = 300;
+        sun.shadow.camera.top = 300;
+        sun.shadow.camera.bottom = -300;
+        scene.add(sun);
+
+        // Sol visual no céu
+        const solMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(14, 16, 16),
+            new THREE.MeshBasicMaterial({ color: 0xffee66 })
+        );
+        solMesh.position.set(200, 220, 150);
+        scene.add(solMesh);
+        const solHalo = new THREE.Mesh(
+            new THREE.SphereGeometry(22, 16, 16),
+            new THREE.MeshBasicMaterial({ color: 0xfff0a0, transparent: true, opacity: 0.25 })
+        );
+        solHalo.position.copy(solMesh.position);
+        scene.add(solHalo);
+
+        // ==================== CIDADE (mapa 20x maior com quarteirões) ====================
+        // Grade de ruas
+        const RUA_LARGURA = 18;          // largura das ruas
+        const QUARTEIRAO = 55;           // tamanho de cada quarteirão (bloco)
+        const CELULA = RUA_LARGURA + QUARTEIRAO; // espaçamento entre centros de ruas
+        const NUM_BLOCOS = 14;           // 14x14 quarteirões → cidade enorme
+        const cidadeSize = NUM_BLOCOS * CELULA + RUA_LARGURA;
+
+        const prediosColisao = []; // colisão com prédios/casas
+        const rampas = []; // física das rampas
+        const lagos = []; // zonas de água (cair = afundar / reiniciar)
+
+        // Chão da cidade (asfalto geral)
+        const chaoGeo = new THREE.PlaneGeometry(cidadeSize + 10, cidadeSize + 10);
+        const chaoMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.9 });
+        const chao = new THREE.Mesh(chaoGeo, chaoMat);
+        chao.rotation.x = -Math.PI / 2;
+        chao.position.y = -0.02;
+        chao.receiveShadow = true;
+        scene.add(chao);
+
+        // ===== AREIA 50m (2,5x) + OCEANO ao redor da cidade =====
+        const BORDA_CIDADE = cidadeSize / 2;
+        const AREIA_LARGURA = 50;
+        const OCEANO_INICIO = BORDA_CIDADE + AREIA_LARGURA;
+        const oceanoMat = new THREE.MeshStandardMaterial({
+            color: 0x0a4a8a,
+            transparent: true,
+            opacity: 0.85,
+            metalness: 0.35,
+            roughness: 0.25,
+            emissive: 0x002244,
+            emissiveIntensity: 0.12
+        });
+        const OCEANO_TAM = 900;
+        const ladosOceano = [
+            { x: 0, z: OCEANO_INICIO + OCEANO_TAM / 2, w: cidadeSize + OCEANO_TAM * 2 + AREIA_LARGURA * 2, d: OCEANO_TAM },
+            { x: 0, z: -(OCEANO_INICIO + OCEANO_TAM / 2), w: cidadeSize + OCEANO_TAM * 2 + AREIA_LARGURA * 2, d: OCEANO_TAM },
+            { x: OCEANO_INICIO + OCEANO_TAM / 2, z: 0, w: OCEANO_TAM, d: cidadeSize + AREIA_LARGURA * 2 },
+            { x: -(OCEANO_INICIO + OCEANO_TAM / 2), z: 0, w: OCEANO_TAM, d: cidadeSize + AREIA_LARGURA * 2 }
+        ];
+        ladosOceano.forEach(lado => {
+            const agua = new THREE.Mesh(
+                new THREE.PlaneGeometry(lado.w, lado.d),
+                oceanoMat
+            );
+            agua.rotation.x = -Math.PI / 2;
+            agua.position.set(lado.x, 0.05, lado.z);
+            agua.receiveShadow = true;
+            scene.add(agua);
+        });
+        const areiaMat = new THREE.MeshStandardMaterial({ color: 0xc2b280, roughness: 0.95 });
+        [[1], [-1]].forEach(([sig]) => {
+            const areia = new THREE.Mesh(
+                new THREE.PlaneGeometry(cidadeSize + AREIA_LARGURA * 2, AREIA_LARGURA),
+                areiaMat
+            );
+            areia.rotation.x = -Math.PI / 2;
+            areia.position.set(0, 0.03, sig * (BORDA_CIDADE + AREIA_LARGURA / 2));
+            scene.add(areia);
+        });
+        [[1], [-1]].forEach(([sig]) => {
+            const areia = new THREE.Mesh(
+                new THREE.PlaneGeometry(AREIA_LARGURA, cidadeSize),
+                areiaMat
+            );
+            areia.rotation.x = -Math.PI / 2;
+            areia.position.set(sig * (BORDA_CIDADE + AREIA_LARGURA / 2), 0.03, 0);
+            scene.add(areia);
+        });
+
+        function estaNoOceano(wx, wz) {
+            return Math.abs(wx) > OCEANO_INICIO || Math.abs(wz) > OCEANO_INICIO;
+        }
+
+        // ===== ILHAS COM COQUEIROS =====
+        function criarCoqueiro(x, z) {
+            const g = new THREE.Group();
+            const troncoMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.9 });
+            // Tronco segmentado (curvado)
+            let py = 0;
+            let px = 0;
+            for (let s = 0; s < 5; s++) {
+                const seg = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.22 - s * 0.02, 0.26 - s * 0.02, 1.2, 8),
+                    troncoMat
+                );
+                px += (Math.random() - 0.5) * 0.15;
+                py += 1.15;
+                seg.position.set(px, py, 0);
+                seg.rotation.z = (Math.random() - 0.5) * 0.2;
+                seg.castShadow = true;
+                g.add(seg);
+            }
+            const folhaMat = new THREE.MeshStandardMaterial({ color: 0x2d8a3e, side: THREE.DoubleSide, roughness: 0.8 });
+            for (let i = 0; i < 8; i++) {
+                const folhaG = new THREE.Group();
+                for (let j = 0; j < 4; j++) {
+                    const folha = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.12, 0.06, 1.4 - j * 0.2),
+                        folhaMat
+                    );
+                    folha.position.set(0, 0, 0.7 + j * 0.55);
+                    folha.rotation.x = 0.15 * j;
+                    folhaG.add(folha);
+                }
+                folhaG.position.set(px, py + 0.6, 0);
+                folhaG.rotation.y = (i / 8) * Math.PI * 2;
+                folhaG.rotation.x = 0.4 + Math.random() * 0.3;
+                g.add(folhaG);
+            }
+            for (let i = 0; i < 4; i++) {
+                const coco = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.2, 8, 8),
+                    new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.7 })
+                );
+                coco.position.set(px + Math.cos(i) * 0.35, py + 0.2, Math.sin(i) * 0.35);
+                g.add(coco);
+            }
+            g.position.set(x, 0, z);
+            scene.add(g);
+        }
+        function criarIlha(x, z, raio) {
+            const g = new THREE.Group();
+            // Base de areia em camadas
+            const areia1 = new THREE.Mesh(
+                new THREE.CylinderGeometry(raio, raio * 1.15, 1.2, 16),
+                new THREE.MeshStandardMaterial({ color: 0xe8d5a8, roughness: 0.95 })
+            );
+            areia1.position.y = 0.4;
+            areia1.receiveShadow = true;
+            g.add(areia1);
+            const areia2 = new THREE.Mesh(
+                new THREE.CylinderGeometry(raio * 0.7, raio * 0.85, 0.8, 14),
+                new THREE.MeshStandardMaterial({ color: 0xd4c090, roughness: 0.95 })
+            );
+            areia2.position.y = 1.1;
+            g.add(areia2);
+            // Mancha de grama no centro
+            const grama = new THREE.Mesh(
+                new THREE.CylinderGeometry(raio * 0.4, raio * 0.45, 0.3, 12),
+                new THREE.MeshStandardMaterial({ color: 0x3a9a4a, roughness: 0.9 })
+            );
+            grama.position.y = 1.55;
+            g.add(grama);
+            // Pedras
+            for (let i = 0; i < 5; i++) {
+                const pedra = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.4 + Math.random() * 0.5, 6, 5),
+                    new THREE.MeshStandardMaterial({ color: 0x888880, roughness: 0.95 })
+                );
+                const a = Math.random() * Math.PI * 2;
+                const d = raio * (0.4 + Math.random() * 0.45);
+                pedra.position.set(Math.cos(a) * d, 1.0, Math.sin(a) * d);
+                pedra.scale.y = 0.6;
+                g.add(pedra);
+            }
+            g.position.set(x, 0, z);
+            scene.add(g);
+            const n = 4 + Math.floor(Math.random() * 5);
+            for (let i = 0; i < n; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const d = Math.random() * raio * 0.55;
+                criarCoqueiro(x + Math.cos(a) * d, z + Math.sin(a) * d);
+            }
+        }
+        // Ilhas bem depois da barreira (≥ 65m)
+        const ilhasPos = [
+            [OCEANO_INICIO + 80, 90], [-(OCEANO_INICIO + 100), -70],
+            [100, OCEANO_INICIO + 90], [-80, -(OCEANO_INICIO + 85)],
+            [OCEANO_INICIO + 150, -160], [-(OCEANO_INICIO + 130), 140]
+        ];
+        ilhasPos.forEach(([ix, iz]) => criarIlha(ix, iz, 14 + Math.random() * 12));
+
+        // ===== NAVIOS =====
+        const navios = [];
+        function criarNavio() {
+            const g = new THREE.Group();
+            const azul = new THREE.MeshStandardMaterial({ color: 0x1a3a6a, metalness: 0.3, roughness: 0.5 });
+            const branco = new THREE.MeshStandardMaterial({ color: 0xf0f0f5, roughness: 0.5 });
+            const vermelho = new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.6 });
+            const preto = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.7 });
+            // Casco principal (afilado)
+            const casco = new THREE.Mesh(new THREE.BoxGeometry(18, 3.2, 5), azul);
+            casco.position.y = 1.2;
+            g.add(casco);
+            // Proa
+            const proa = new THREE.Mesh(new THREE.BoxGeometry(4, 2.8, 3.5), azul);
+            proa.position.set(10, 1.1, 0);
+            proa.rotation.z = -0.15;
+            g.add(proa);
+            // Fundo vermelho
+            const fundo = new THREE.Mesh(new THREE.BoxGeometry(18.2, 0.6, 5.2), vermelho);
+            fundo.position.y = -0.1;
+            g.add(fundo);
+            // Faixa branca
+            const faixa = new THREE.Mesh(new THREE.BoxGeometry(18.1, 0.35, 5.15), branco);
+            faixa.position.y = 2.5;
+            g.add(faixa);
+            // Superestrutura
+            const super1 = new THREE.Mesh(new THREE.BoxGeometry(6, 2.5, 4), branco);
+            super1.position.set(-1, 4.2, 0);
+            g.add(super1);
+            const super2 = new THREE.Mesh(new THREE.BoxGeometry(4, 1.8, 3.2), branco);
+            super2.position.set(-1, 6.2, 0);
+            g.add(super2);
+            // Ponte / janelas
+            const ponte = new THREE.Mesh(
+                new THREE.BoxGeometry(3.5, 1.2, 3.4),
+                new THREE.MeshStandardMaterial({ color: 0x88aacc, transparent: true, opacity: 0.7, metalness: 0.5 })
+            );
+            ponte.position.set(-0.5, 7.5, 0);
+            g.add(ponte);
+            // Chaminés
+            [[1.5, 0.8], [1.5, -0.8]].forEach(([cz, cx]) => {
+                const ch = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 2.8, 8), preto);
+                ch.position.set(cx, 5.5, cz);
+                g.add(ch);
+                const topoCh = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.5, 0.4, 8), vermelho);
+                topoCh.position.set(cx, 7.0, cz);
+                g.add(topoCh);
+            });
+            // Mastro
+            const mastro = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 5, 6), preto);
+            mastro.position.set(-3, 7.5, 0);
+            g.add(mastro);
+            // Guindaste / detalhe no convés
+            const guind = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 4), preto);
+            guind.position.set(5, 3.5, 0);
+            guind.rotation.z = 0.4;
+            g.add(guind);
+            // Escotilhas
+            for (let i = 0; i < 3; i++) {
+                const esc = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.3, 8), preto);
+                esc.position.set(3 + i * 2.5, 2.9, 0);
+                g.add(esc);
+            }
+            // Antena
+            const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2, 4), preto);
+            ant.position.set(-1, 9.2, 0);
+            g.add(ant);
+            scene.add(g);
+            const ang = Math.random() * Math.PI * 2;
+            // Bem no fundo do oceano (longe, no horizonte)
+            const dist = OCEANO_INICIO + 180 + Math.random() * 200;
+            return {
+                mesh: g,
+                ang,
+                dist,
+                vel: 0.04 + Math.random() * 0.04, // mais lento no horizonte
+                sentido: Math.random() > 0.5 ? 1 : -1
+            };
+        }
+        for (let i = 0; i < 6; i++) navios.push(criarNavio());
+
+        function atualizarNavios(dt) {
+            navios.forEach(n => {
+                n.ang += n.vel * n.sentido * dt * 0.12;
+                n.mesh.position.set(
+                    Math.cos(n.ang) * n.dist,
+                    0.5,
+                    Math.sin(n.ang) * n.dist
+                );
+                n.mesh.rotation.y = n.ang + (n.sentido > 0 ? Math.PI / 2 : -Math.PI / 2);
+            });
+        }
+
+        // ===== PÁSSAROS (atravessam o mapa, não seguem o jogador) =====
+        const passaros = [];
+        function criarPassaro() {
+            const g = new THREE.Group();
+            const corpo = new THREE.Mesh(
+                new THREE.SphereGeometry(0.25, 6, 6),
+                new THREE.MeshStandardMaterial({ color: 0x222222 })
+            );
+            g.add(corpo);
+            const asaL = new THREE.Mesh(
+                new THREE.BoxGeometry(1.2, 0.06, 0.35),
+                new THREE.MeshStandardMaterial({ color: 0x333333 })
+            );
+            asaL.position.set(-0.5, 0, 0);
+            g.add(asaL);
+            const asaR = asaL.clone();
+            asaR.position.x = 0.5;
+            g.add(asaR);
+            g.visible = false;
+            scene.add(g);
+            return {
+                mesh: g, asaL, asaR,
+                ativo: false,
+                timer: 15 + Math.random() * 40, // espera longa antes de aparecer
+                phase: Math.random() * Math.PI * 2,
+                vx: 0, vz: 0, x: 0, y: 30, z: 0
+            };
+        }
+        // Poucos pássaros (aparecem menos vezes por minuto)
+        for (let i = 0; i < 5; i++) passaros.push(criarPassaro());
+
+        function iniciarVooPassaro(p) {
+            const eixo = Math.random() > 0.5 ? 'x' : 'z';
+            const sentido = Math.random() > 0.5 ? 1 : -1;
+            const margem = half + 60;
+            p.y = 20 + Math.random() * 35;
+            if (eixo === 'x') {
+                p.x = -sentido * margem;
+                p.z = (Math.random() - 0.5) * half * 1.6;
+                p.vx = sentido * (12 + Math.random() * 10);
+                p.vz = (Math.random() - 0.5) * 3;
+            } else {
+                p.z = -sentido * margem;
+                p.x = (Math.random() - 0.5) * half * 1.6;
+                p.vz = sentido * (12 + Math.random() * 10);
+                p.vx = (Math.random() - 0.5) * 3;
+            }
+            p.mesh.position.set(p.x, p.y, p.z);
+            p.mesh.rotation.y = Math.atan2(p.vx, p.vz);
+            p.mesh.visible = true;
+            p.ativo = true;
+        }
+
+        function atualizarPassaros(dt) {
+            const lim = half + 80;
+            passaros.forEach(p => {
+                if (!p.ativo) {
+                    p.timer -= dt;
+                    if (p.timer <= 0) {
+                        iniciarVooPassaro(p);
+                        p.timer = 25 + Math.random() * 50; // 25–75s entre voos
+                    }
+                    return;
+                }
+                p.x += p.vx * dt;
+                p.z += p.vz * dt;
+                p.y += Math.sin(performance.now() * 0.002 + p.phase) * 0.02;
+                p.mesh.position.set(p.x, p.y, p.z);
+                p.mesh.rotation.y = Math.atan2(p.vx, p.vz);
+                const flap = Math.sin(performance.now() * 0.012 + p.phase) * 0.55;
+                p.asaL.rotation.z = flap;
+                p.asaR.rotation.z = -flap;
+                if (Math.abs(p.x) > lim || Math.abs(p.z) > lim) {
+                    p.mesh.visible = false;
+                    p.ativo = false;
+                }
+            });
+        }
+
+        // Função para criar faixa de rua
+        function criarRua(x, z, largura, comprimento, rotY = 0) {
+            const geo = new THREE.PlaneGeometry(largura, comprimento);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.85 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.rotation.z = rotY;
+            mesh.position.set(x, 0.01, z);
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+        }
+
+        // Função linha (faixas)
+        function criarLinha(largura, comprimento, x, z, cor = 0xffffff, rot = 0) {
+            const geo = new THREE.PlaneGeometry(largura, comprimento);
+            const mat = new THREE.MeshBasicMaterial({ color: cor });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.rotation.z = rot;
+            mesh.position.set(x, 0.03, z);
+            scene.add(mesh);
+        }
+
+        // === Cria a grade de ruas (horizontais + verticais) ===
+        const half = (NUM_BLOCOS * CELULA) / 2;
+
+        // Ruas horizontais (ao longo de X)
+        for (let i = 0; i <= NUM_BLOCOS; i++) {
+            const z = -half + i * CELULA;
+            criarRua(0, z, cidadeSize, RUA_LARGURA);
+
+            // Linha central tracejada
+            for (let x = -half; x < half; x += 8) {
+                criarLinha(3.5, 0.25, x + 2, z, 0xffee00);
+            }
+            // Bordas da rua
+            criarLinha(cidadeSize, 0.3, 0, z - RUA_LARGURA/2 + 0.2, 0xffffff);
+            criarLinha(cidadeSize, 0.3, 0, z + RUA_LARGURA/2 - 0.2, 0xffffff);
+        }
+
+        // Ruas verticais (ao longo de Z)
+        for (let i = 0; i <= NUM_BLOCOS; i++) {
+            const x = -half + i * CELULA;
+            criarRua(x, 0, RUA_LARGURA, cidadeSize);
+
+            for (let z = -half; z < half; z += 8) {
+                criarLinha(0.25, 3.5, x, z + 2, 0xffee00);
+            }
+            criarLinha(0.3, cidadeSize, x - RUA_LARGURA/2 + 0.2, 0, 0xffffff);
+            criarLinha(0.3, cidadeSize, x + RUA_LARGURA/2 - 0.2, 0, 0xffffff);
+        }
+
+        // === Calçadas ao redor dos quarteirões ===
+        const calcadaMat = new THREE.MeshStandardMaterial({ color: 0xb0aaa0, roughness: 0.95 });
+        for (let bx = 0; bx < NUM_BLOCOS; bx++) {
+            for (let bz = 0; bz < NUM_BLOCOS; bz++) {
+                const cx = -half + RUA_LARGURA/2 + QUARTEIRAO/2 + bx * CELULA;
+                const cz = -half + RUA_LARGURA/2 + QUARTEIRAO/2 + bz * CELULA;
+                // Calçada em anel (borda do quarteirão)
+                const calc = new THREE.Mesh(
+                    new THREE.PlaneGeometry(QUARTEIRAO - 1, QUARTEIRAO - 1),
+                    calcadaMat
+                );
+                calc.rotation.x = -Math.PI / 2;
+                calc.position.set(cx, 0.025, cz);
+                calc.receiveShadow = true;
+                scene.add(calc);
+            }
+        }
+
+        // === Faixas de pedestre nos cruzamentos (só retângulos) ===
+        function criarFaixaPedestre(x, z, rotY) {
+            const grupo = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
+            // 6 retângulos paralelos
+            for (let s = -2.5; s <= 2.5; s++) {
+                const faixa = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.7, 0.04, 5.5),
+                    mat
+                );
+                faixa.position.set(s * 1.15, 0.03, 0);
+                faixa.receiveShadow = true;
+                grupo.add(faixa);
+            }
+            // Bordas laterais finas
+            [-3.6, 3.6].forEach(bx => {
+                const borda = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.15, 0.045, 5.5),
+                    mat
+                );
+                borda.position.set(bx, 0.03, 0);
+                grupo.add(borda);
+            });
+            grupo.position.set(x, 0, z);
+            grupo.rotation.y = rotY;
+            scene.add(grupo);
+        }
+
+        for (let i = 0; i <= NUM_BLOCOS; i++) {
+            for (let j = 0; j <= NUM_BLOCOS; j++) {
+                const ix = -half + i * CELULA;
+                const iz = -half + j * CELULA;
+                // Quatro faixas, uma em cada lado do cruzamento
+                const off = RUA_LARGURA * 0.42;
+                criarFaixaPedestre(ix, iz - off, 0);           // sul
+                criarFaixaPedestre(ix, iz + off, 0);           // norte
+                criarFaixaPedestre(ix - off, iz, Math.PI / 2); // oeste
+                criarFaixaPedestre(ix + off, iz, Math.PI / 2); // leste
+            }
+        }
+
+        // === Árvores ===
+        function criarArvore(x, z) {
+            const grupo = new THREE.Group();
+            const tronco = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.22, 0.3, 2.0, 7),
+                new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.9 })
+            );
+            tronco.position.y = 1.0;
+            tronco.castShadow = true;
+            grupo.add(tronco);
+
+            const copaMat = new THREE.MeshStandardMaterial({ color: 0x1e6b2e, roughness: 0.85 });
+            [1.6, 1.3, 1.1].forEach((r, i) => {
+                const copa = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 5), copaMat);
+                copa.position.y = 2.5 + i * 0.7;
+                copa.castShadow = true;
+                grupo.add(copa);
+            });
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+        }
+
+        // === Casa ===
+        function criarCasa(x, z, largura, profundidade, altura, cor) {
+            const grupo = new THREE.Group();
+            const corpo = new THREE.Mesh(
+                new THREE.BoxGeometry(largura, altura, profundidade),
+                new THREE.MeshStandardMaterial({ color: cor, roughness: 0.8 })
+            );
+            corpo.position.y = altura / 2;
+            corpo.castShadow = true;
+            corpo.receiveShadow = true;
+            grupo.add(corpo);
+
+            const telhado = new THREE.Mesh(
+                new THREE.ConeGeometry(Math.max(largura, profundidade) * 0.72, 2.0, 4),
+                new THREE.MeshStandardMaterial({ color: 0x8b3a2a, roughness: 0.7 })
+            );
+            telhado.position.y = altura + 1.0;
+            telhado.rotation.y = Math.PI / 4;
+            telhado.castShadow = true;
+            grupo.add(telhado);
+
+            // Porta + janelas simples
+            const porta = new THREE.Mesh(
+                new THREE.BoxGeometry(1.0, 1.8, 0.12),
+                new THREE.MeshStandardMaterial({ color: 0x4a2c0a })
+            );
+            porta.position.set(0, 0.9, profundidade / 2 + 0.06);
+            grupo.add(porta);
+
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+            prediosColisao.push({ x, z, w: largura/2 + 1.3, d: profundidade/2 + 1.3, tipo: 'casa' });
+        }
+
+        // === Prédio ===
+        function criarPredio(x, z, largura, profundidade, andares, cor) {
+            const grupo = new THREE.Group();
+            const altura = andares * 3.0;
+            const corpo = new THREE.Mesh(
+                new THREE.BoxGeometry(largura, altura, profundidade),
+                new THREE.MeshStandardMaterial({ color: cor, metalness: 0.25, roughness: 0.55 })
+            );
+            corpo.position.y = altura / 2;
+            corpo.castShadow = true;
+            corpo.receiveShadow = true;
+            grupo.add(corpo);
+
+            // Janelas
+            const janelaMat = new THREE.MeshStandardMaterial({
+                color: 0xaaddff, emissive: 0x225577, emissiveIntensity: 0.12
+            });
+            for (let a = 0; a < andares; a++) {
+                for (let sx = -1; sx <= 1; sx += 2) {
+                    const j = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.3, 0.1), janelaMat);
+                    j.position.set(sx * (largura/2 - 1.5), 1.6 + a * 3.0, profundidade/2 + 0.06);
+                    grupo.add(j);
+                    const j2 = j.clone();
+                    j2.position.z = -profundidade/2 - 0.06;
+                    grupo.add(j2);
+                }
+            }
+
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+            prediosColisao.push({ x, z, w: largura/2 + 1.5, d: profundidade/2 + 1.5, tipo: 'predio' });
+        }
+
+        // === Placa de texto simples (blocos formando letras aproximadas) ===
+        function criarPlaca(grupo, textoCor, y, zFace, largura) {
+            const placa = new THREE.Mesh(
+                new THREE.BoxGeometry(largura * 0.7, 1.2, 0.15),
+                new THREE.MeshStandardMaterial({ color: textoCor, emissive: textoCor, emissiveIntensity: 0.25 })
+            );
+            placa.position.set(0, y, zFace);
+            grupo.add(placa);
+        }
+
+        // === Supermercado ===
+        function criarSupermercado(x, z) {
+            const grupo = new THREE.Group();
+            const L = 22, P = 16, H = 6;
+            const corpo = new THREE.Mesh(
+                new THREE.BoxGeometry(L, H, P),
+                new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 })
+            );
+            corpo.position.y = H / 2;
+            corpo.castShadow = true;
+            corpo.receiveShadow = true;
+            grupo.add(corpo);
+            // Faixa azul/verde de mercado
+            const faixa = new THREE.Mesh(
+                new THREE.BoxGeometry(L + 0.2, 1.5, 0.2),
+                new THREE.MeshStandardMaterial({ color: 0x00aa44, emissive: 0x006622, emissiveIntensity: 0.3 })
+            );
+            faixa.position.set(0, H - 0.5, P / 2 + 0.1);
+            grupo.add(faixa);
+            criarPlaca(grupo, 0xffff00, H - 0.5, P / 2 + 0.2, L);
+            // Entrada de vidro
+            const entrada = new THREE.Mesh(
+                new THREE.BoxGeometry(6, 4, 0.15),
+                new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.5 })
+            );
+            entrada.position.set(0, 2, P / 2 + 0.12);
+            grupo.add(entrada);
+            // Estacionamento (piso cinza na frente)
+            const est = new THREE.Mesh(
+                new THREE.PlaneGeometry(L, 6),
+                new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.9 })
+            );
+            est.rotation.x = -Math.PI / 2;
+            est.position.set(0, 0.05, P / 2 + 4);
+            grupo.add(est);
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+            prediosColisao.push({ x, z, w: L / 2 + 1.5, d: P / 2 + 1.5, tipo: 'mercado' });
+        }
+
+        // === Hotel ===
+        function criarHotel(x, z) {
+            const grupo = new THREE.Group();
+            const L = 14, P = 12, andares = 8;
+            const H = andares * 3;
+            const corpo = new THREE.Mesh(
+                new THREE.BoxGeometry(L, H, P),
+                new THREE.MeshStandardMaterial({ color: 0xf5e6c8, metalness: 0.15, roughness: 0.6 })
+            );
+            corpo.position.y = H / 2;
+            corpo.castShadow = true;
+            grupo.add(corpo);
+            // Topo vermelho/dourado
+            const topo = new THREE.Mesh(
+                new THREE.BoxGeometry(L + 0.5, 1.5, P + 0.5),
+                new THREE.MeshStandardMaterial({ color: 0xaa2222, metalness: 0.4, roughness: 0.4 })
+            );
+            topo.position.y = H + 0.75;
+            grupo.add(topo);
+            criarPlaca(grupo, 0xffd700, H + 0.75, P / 2 + 0.35, L);
+            // Janelas em grade
+            const janMat = new THREE.MeshStandardMaterial({ color: 0x88ddff, emissive: 0x224466, emissiveIntensity: 0.2 });
+            for (let a = 0; a < andares; a++) {
+                for (let i = -2; i <= 2; i++) {
+                    const j = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 0.1), janMat);
+                    j.position.set(i * 2.4, 1.8 + a * 3, P / 2 + 0.06);
+                    grupo.add(j);
+                }
+            }
+            // Marquise da entrada
+            const marquise = new THREE.Mesh(
+                new THREE.BoxGeometry(8, 0.3, 3),
+                new THREE.MeshStandardMaterial({ color: 0x333333 })
+            );
+            marquise.position.set(0, 3.2, P / 2 + 1.5);
+            grupo.add(marquise);
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+            prediosColisao.push({ x, z, w: L / 2 + 1.5, d: P / 2 + 2, tipo: 'hotel' });
+        }
+
+        // === Loja ===
+        function criarLoja(x, z, corFachada) {
+            const grupo = new THREE.Group();
+            // Cores com um pouco de vida (suaves, não gritantes)
+            const coresSuaves = [0xe8c4a8, 0xa8c4d8, 0xd4b8a0, 0xb8c8b0, 0xd8c0c8, 0xc0c0d0, 0xe0d0b0, 0xb0c8c8];
+            const cor = corFachada || coresSuaves[Math.floor(Math.random() * coresSuaves.length)];
+            const L = 11 + Math.random() * 3;
+            const P = 9 + Math.random() * 2;
+            const H = 5.2;
+
+            // Base / soleira
+            const base = new THREE.Mesh(
+                new THREE.BoxGeometry(L + 0.4, 0.35, P + 0.4),
+                new THREE.MeshStandardMaterial({ color: 0x666660, roughness: 0.9 })
+            );
+            base.position.y = 0.175;
+            grupo.add(base);
+
+            // Corpo principal
+            const corpo = new THREE.Mesh(
+                new THREE.BoxGeometry(L, H, P),
+                new THREE.MeshStandardMaterial({ color: cor, roughness: 0.75, metalness: 0.05 })
+            );
+            corpo.position.y = H / 2 + 0.35;
+            corpo.castShadow = true;
+            corpo.receiveShadow = true;
+            grupo.add(corpo);
+
+            // Cornija superior
+            const cornija = new THREE.Mesh(
+                new THREE.BoxGeometry(L + 0.5, 0.35, P + 0.5),
+                new THREE.MeshStandardMaterial({ color: 0x5a554c, roughness: 0.7 })
+            );
+            cornija.position.y = H + 0.5;
+            grupo.add(cornija);
+
+            // Moldura da vitrine
+            const moldura = new THREE.Mesh(
+                new THREE.BoxGeometry(L * 0.78, 3.0, 0.2),
+                new THREE.MeshStandardMaterial({ color: 0x3a3a38, metalness: 0.4, roughness: 0.4 })
+            );
+            moldura.position.set(0, 2.1, P / 2 + 0.12);
+            grupo.add(moldura);
+
+            // Vidro da vitrine (2 painéis)
+            const vidroMat = new THREE.MeshStandardMaterial({
+                color: 0x9ecfff, transparent: true, opacity: 0.45, metalness: 0.9, roughness: 0.05
+            });
+            [-1, 1].forEach(side => {
+                const vit = new THREE.Mesh(new THREE.BoxGeometry(L * 0.32, 2.6, 0.08), vidroMat);
+                vit.position.set(side * L * 0.2, 2.1, P / 2 + 0.22);
+                grupo.add(vit);
+            });
+
+            // Porta central
+            const porta = new THREE.Mesh(
+                new THREE.BoxGeometry(1.6, 2.8, 0.12),
+                new THREE.MeshStandardMaterial({ color: 0x2a2a28, metalness: 0.5, roughness: 0.35 })
+            );
+            porta.position.set(0, 1.75, P / 2 + 0.2);
+            grupo.add(porta);
+            // Maçaneta
+            const mac = new THREE.Mesh(
+                new THREE.BoxGeometry(0.12, 0.35, 0.15),
+                new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9 })
+            );
+            mac.position.set(0.55, 1.7, P / 2 + 0.3);
+            grupo.add(mac);
+
+            // Letreiro com um toque de cor
+            const coresLetreiro = [0xc45c26, 0x2a6aaa, 0x3a8a5a, 0x8a4a6a, 0xb89030];
+            const corLet = coresLetreiro[Math.floor(Math.random() * coresLetreiro.length)];
+            const letreiro = new THREE.Mesh(
+                new THREE.BoxGeometry(L * 0.55, 0.85, 0.18),
+                new THREE.MeshStandardMaterial({ color: 0x2c2c2a, metalness: 0.3, roughness: 0.5 })
+            );
+            letreiro.position.set(0, H + 0.1, P / 2 + 0.2);
+            grupo.add(letreiro);
+            const faixaLet = new THREE.Mesh(
+                new THREE.BoxGeometry(L * 0.5, 0.5, 0.1),
+                new THREE.MeshStandardMaterial({ color: corLet, emissive: corLet, emissiveIntensity: 0.12 })
+            );
+            faixaLet.position.set(0, H + 0.1, P / 2 + 0.3);
+            grupo.add(faixaLet);
+
+            // Toldo com cor suave
+            const coresToldo = [0xa05040, 0x406080, 0x508060, 0x806050, 0x705080];
+            const toldo = new THREE.Mesh(
+                new THREE.BoxGeometry(L * 0.85, 0.12, 1.6),
+                new THREE.MeshStandardMaterial({ color: coresToldo[Math.floor(Math.random() * coresToldo.length)], roughness: 0.8 })
+            );
+            toldo.position.set(0, 3.6, P / 2 + 1.0);
+            grupo.add(toldo);
+            // Suportes do toldo
+            [-L * 0.35, L * 0.35].forEach(sx => {
+                const sup = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.08, 0.08, 1.4),
+                    new THREE.MeshStandardMaterial({ color: 0x444440 })
+                );
+                sup.position.set(sx, 3.5, P / 2 + 0.85);
+                grupo.add(sup);
+            });
+
+            // Janelas superiores
+            const janMat = new THREE.MeshStandardMaterial({ color: 0x88aacc, transparent: true, opacity: 0.5, metalness: 0.7 });
+            for (let i = -2; i <= 2; i++) {
+                if (i === 0) continue;
+                const jan = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.2, 0.08), janMat);
+                jan.position.set(i * 1.9, H - 0.9, P / 2 + 0.1);
+                grupo.add(jan);
+            }
+
+            // Calçada em frente
+            const calcada = new THREE.Mesh(
+                new THREE.BoxGeometry(L + 1, 0.12, 2.5),
+                new THREE.MeshStandardMaterial({ color: 0xb0aaa0, roughness: 0.95 })
+            );
+            calcada.position.set(0, 0.06, P / 2 + 1.8);
+            grupo.add(calcada);
+
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+            prediosColisao.push({ x, z, w: L / 2 + 1.2, d: P / 2 + 1.5, tipo: 'loja' });
+        }
+
+        // === Shopping ===
+        function criarShopping(x, z) {
+            const grupo = new THREE.Group();
+            const L = 28, P = 20, H = 9;
+            // Corpo principal
+            const corpo = new THREE.Mesh(
+                new THREE.BoxGeometry(L, H, P),
+                new THREE.MeshStandardMaterial({ color: 0xe8e8f0, metalness: 0.3, roughness: 0.5 })
+            );
+            corpo.position.y = H / 2;
+            corpo.castShadow = true;
+            grupo.add(corpo);
+            // Cúpula / centro
+            const cupula = new THREE.Mesh(
+                new THREE.SphereGeometry(5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+                new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.45, metalness: 0.6 })
+            );
+            cupula.position.set(0, H, 0);
+            grupo.add(cupula);
+            // Faixa roxa de shopping
+            const faixa = new THREE.Mesh(
+                new THREE.BoxGeometry(L + 0.3, 1.8, 0.25),
+                new THREE.MeshStandardMaterial({ color: 0x7722aa, emissive: 0x441166, emissiveIntensity: 0.35 })
+            );
+            faixa.position.set(0, H - 1, P / 2 + 0.15);
+            grupo.add(faixa);
+            criarPlaca(grupo, 0xffffff, H - 1, P / 2 + 0.3, L * 0.5);
+            // Entradas
+            [-8, 0, 8].forEach(ox => {
+                const ent = new THREE.Mesh(
+                    new THREE.BoxGeometry(4, 4, 0.15),
+                    new THREE.MeshStandardMaterial({ color: 0x66aaff, transparent: true, opacity: 0.5 })
+                );
+                ent.position.set(ox, 2.2, P / 2 + 0.12);
+                grupo.add(ent);
+            });
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+            prediosColisao.push({ x, z, w: L / 2 + 2, d: P / 2 + 2, tipo: 'shopping' });
+        }
+
+        // === Hospital ===
+        function criarHospital(x, z) {
+            const grupo = new THREE.Group();
+            const L = 20, P = 16, H = 12;
+            const corpo = new THREE.Mesh(
+                new THREE.BoxGeometry(L, H, P),
+                new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 })
+            );
+            corpo.position.y = H / 2;
+            corpo.castShadow = true;
+            grupo.add(corpo);
+            // Cruz vermelha na fachada
+            const cruzV = new THREE.Mesh(
+                new THREE.BoxGeometry(1.2, 5, 0.2),
+                new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xaa0000, emissiveIntensity: 0.4 })
+            );
+            cruzV.position.set(0, H - 3, P / 2 + 0.12);
+            grupo.add(cruzV);
+            const cruzH = new THREE.Mesh(
+                new THREE.BoxGeometry(4, 1.2, 0.2),
+                new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xaa0000, emissiveIntensity: 0.4 })
+            );
+            cruzH.position.set(0, H - 3, P / 2 + 0.12);
+            grupo.add(cruzH);
+            // Faixa azul hospital
+            const faixa = new THREE.Mesh(
+                new THREE.BoxGeometry(L + 0.2, 1.2, 0.15),
+                new THREE.MeshStandardMaterial({ color: 0x0066cc, emissive: 0x003388, emissiveIntensity: 0.3 })
+            );
+            faixa.position.set(0, 2.5, P / 2 + 0.1);
+            grupo.add(faixa);
+            // Janelas
+            const janMat = new THREE.MeshStandardMaterial({ color: 0xaaddff, emissive: 0x113355, emissiveIntensity: 0.15 });
+            for (let a = 0; a < 3; a++) {
+                for (let i = -3; i <= 3; i++) {
+                    if (i === 0) continue;
+                    const j = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.6, 0.08), janMat);
+                    j.position.set(i * 2.5, 5 + a * 2.5, P / 2 + 0.06);
+                    grupo.add(j);
+                }
+            }
+            // Heliponto no teto
+            const heli = new THREE.Mesh(
+                new THREE.CylinderGeometry(3.5, 3.5, 0.2, 16),
+                new THREE.MeshStandardMaterial({ color: 0x333333 })
+            );
+            heli.position.y = H + 0.15;
+            grupo.add(heli);
+            const heliH = new THREE.Mesh(
+                new THREE.BoxGeometry(3, 0.15, 0.6),
+                new THREE.MeshStandardMaterial({ color: 0xffffff })
+            );
+            heliH.position.y = H + 0.3;
+            grupo.add(heliH);
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+            prediosColisao.push({ x, z, w: L / 2 + 1.5, d: P / 2 + 1.5, tipo: 'hospital' });
+        }
+
+        // === Posto de gasolina ===
+        function criarPosto(x, z) {
+            const grupo = new THREE.Group();
+            // Tamanho do quarteirão inteiro
+            const L = QUARTEIRAO - 6;
+            const P = QUARTEIRAO - 6;
+
+            // Piso de asfalto do posto
+            const piso = new THREE.Mesh(
+                new THREE.PlaneGeometry(L, P),
+                new THREE.MeshStandardMaterial({ color: 0x3a3a3e, roughness: 0.95 })
+            );
+            piso.rotation.x = -Math.PI / 2;
+            piso.position.y = 0.05;
+            piso.receiveShadow = true;
+            grupo.add(piso);
+
+            // Cobertura grande
+            const teto = new THREE.Mesh(
+                new THREE.BoxGeometry(L * 0.85, 0.5, P * 0.55),
+                new THREE.MeshStandardMaterial({ color: 0xe82500, metalness: 0.35, roughness: 0.45 })
+            );
+            teto.position.set(0, 7, 2);
+            teto.castShadow = true;
+            grupo.add(teto);
+            // Faixa branca na cobertura
+            const faixaTeto = new THREE.Mesh(
+                new THREE.BoxGeometry(L * 0.85, 0.25, 0.4),
+                new THREE.MeshStandardMaterial({ color: 0xffffff })
+            );
+            faixaTeto.position.set(0, 7.15, 2 + P * 0.27);
+            grupo.add(faixaTeto);
+
+            // Pilares da cobertura (grade)
+            for (let i = -2; i <= 2; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    const p = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.35, 0.4, 7, 8),
+                        new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.5, roughness: 0.4 })
+                    );
+                    p.position.set(i * (L * 0.18), 3.5, 2 + j * (P * 0.18));
+                    p.castShadow = true;
+                    grupo.add(p);
+                }
+            }
+
+            // Loja de conveniência (fundo)
+            const loja = new THREE.Mesh(
+                new THREE.BoxGeometry(L * 0.45, 5, 8),
+                new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.7 })
+            );
+            loja.position.set(0, 2.5, -P * 0.32);
+            loja.castShadow = true;
+            grupo.add(loja);
+            // Faixa da loja
+            const faixaLoja = new THREE.Mesh(
+                new THREE.BoxGeometry(L * 0.45 + 0.2, 1.2, 0.2),
+                new THREE.MeshStandardMaterial({ color: 0xe82500, emissive: 0x661100, emissiveIntensity: 0.25 })
+            );
+            faixaLoja.position.set(0, 4.6, -P * 0.32 + 4.15);
+            grupo.add(faixaLoja);
+            // Porta da loja
+            const portaLoja = new THREE.Mesh(
+                new THREE.BoxGeometry(3, 3, 0.15),
+                new THREE.MeshStandardMaterial({ color: 0x66aaff, transparent: true, opacity: 0.5 })
+            );
+            portaLoja.position.set(0, 1.6, -P * 0.32 + 4.1);
+            grupo.add(portaLoja);
+
+            // Filas de bombas — só cada bomba colide (corredores livres)
+            for (let fila = -1; fila <= 1; fila++) {
+                for (let i = -2; i <= 2; i++) {
+                    const bx = i * 5;
+                    const bz = 2 + fila * 6;
+                    // Base da bomba
+                    const base = new THREE.Mesh(
+                        new THREE.BoxGeometry(1.8, 0.25, 1.8),
+                        new THREE.MeshStandardMaterial({ color: 0x333333 })
+                    );
+                    base.position.set(bx, 0.2, bz);
+                    grupo.add(base);
+                    // Corpo da bomba
+                    const bomba = new THREE.Mesh(
+                        new THREE.BoxGeometry(1.3, 2.2, 1.0),
+                        new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.4, roughness: 0.4 })
+                    );
+                    bomba.position.set(bx, 1.3, bz);
+                    grupo.add(bomba);
+                    // Tela da bomba
+                    const tela = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.9, 0.6, 0.08),
+                        new THREE.MeshStandardMaterial({ color: 0x33ff66, emissive: 0x11aa33, emissiveIntensity: 0.4 })
+                    );
+                    tela.position.set(bx, 1.8, bz + 0.55);
+                    grupo.add(tela);
+                    // Colisão só da bomba (não do posto inteiro)
+                    prediosColisao.push({ x: x + bx, z: z + bz, w: 1.1, d: 1.1, tipo: 'posto' });
+                }
+            }
+
+            // Totem / placa alta na entrada
+            const totemX = L * 0.38;
+            const totemZ = P * 0.4;
+            const totem = new THREE.Mesh(
+                new THREE.BoxGeometry(2, 12, 1),
+                new THREE.MeshStandardMaterial({ color: 0xe82500 })
+            );
+            totem.position.set(totemX, 6, totemZ);
+            totem.castShadow = true;
+            grupo.add(totem);
+            const totemTop = new THREE.Mesh(
+                new THREE.BoxGeometry(2.4, 2, 1.2),
+                new THREE.MeshStandardMaterial({ color: 0xffffff })
+            );
+            totemTop.position.set(totemX, 13, totemZ);
+            grupo.add(totemTop);
+
+            grupo.position.set(x, 0, z);
+            scene.add(grupo);
+
+            // Colisão só da loja de conveniência e do totem
+            prediosColisao.push({ x: x, z: z - P * 0.32, w: L * 0.25, d: 4.5, tipo: 'posto' });
+            prediosColisao.push({ x: x + totemX, z: z + totemZ, w: 1.4, d: 1.0, tipo: 'posto' });
+            // Pilares também colidem individualmente
+            for (let i = -2; i <= 2; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    prediosColisao.push({
+                        x: x + i * (L * 0.18),
+                        z: z + 2 + j * (P * 0.18),
+                        w: 0.55,
+                        d: 0.55,
+                        tipo: 'posto'
+                    });
+                }
+            }
+        }
+
+        // === Grama + Rampa ===
+        function criarGramaQuarteirao(cx, cz) {
+            // Tapete de grama cobrindo o quarteirão
+            const grama = new THREE.Mesh(
+                new THREE.PlaneGeometry(QUARTEIRAO - 4, QUARTEIRAO - 4),
+                new THREE.MeshStandardMaterial({ color: 0x3a9a4a, roughness: 0.9 })
+            );
+            grama.rotation.x = -Math.PI / 2;
+            grama.position.set(cx, 0.04, cz);
+            grama.receiveShadow = true;
+            scene.add(grama);
+
+            // Algumas árvores nos cantos
+            for (let t = 0; t < 3; t++) {
+                const ox = (Math.random() > 0.5 ? 1 : -1) * (16 + Math.random() * 6);
+                const oz = (Math.random() > 0.5 ? 1 : -1) * (16 + Math.random() * 6);
+                criarArvore(cx + ox, cz + oz);
+            }
+        }
+
+        // Dois tamanhos de rampa: pequena e grande
+        const TAMANHOS_RAMPA = {
+            pequena: { largura: 10, comprimento: 14, altura: 3.0 },
+            grande:  { largura: 14, comprimento: 22, altura: 5.0 }
+        };
+
+        function criarRampa(x, z, rotY, tamanho = 'pequena') {
+            const t = TAMANHOS_RAMPA[tamanho] || TAMANHOS_RAMPA.pequena;
+            const largura = t.largura;
+            const comprimento = t.comprimento;
+            const altura = t.altura;
+
+            const grupo = new THREE.Group();
+            const angulo = Math.atan(altura / comprimento);
+
+            // Só a rampa inclinada (sem plataforma no topo)
+            const rampaGeo = new THREE.BoxGeometry(largura, 0.4, comprimento);
+            const rampaMat = new THREE.MeshStandardMaterial({ color: 0x666670, roughness: 0.7, metalness: 0.15 });
+            const rampa = new THREE.Mesh(rampaGeo, rampaMat);
+            rampa.rotation.x = -angulo;
+            rampa.position.y = Math.sin(angulo) * (comprimento / 2) * 0.5 + 0.2;
+            rampa.castShadow = true;
+            rampa.receiveShadow = true;
+            grupo.add(rampa);
+
+            // Laterais de suporte (sem proteção/plataforma em cima)
+            const latMat = new THREE.MeshStandardMaterial({ color: 0x555560, roughness: 0.8 });
+            [-largura/2 + 0.3, largura/2 - 0.3].forEach(lx => {
+                const lat = new THREE.Mesh(new THREE.BoxGeometry(0.45, altura * 0.75, comprimento * 0.65), latMat);
+                lat.position.set(lx, altura * 0.3, 0);
+                lat.castShadow = true;
+                grupo.add(lat);
+            });
+
+            grupo.position.set(x, 0, z);
+            grupo.rotation.y = rotY;
+            scene.add(grupo);
+
+            // Física: só a rampa inclinada (sem plataforma)
+            rampas.push({
+                x, z, rotY,
+                largura: largura / 2 - 0.3,
+                comprimento: comprimento / 2 - 0.5,
+                altura,
+                angulo,
+                lancamento: tamanho === 'grande' ? 10 : 8
+            });
+        }
+
+        // ===== LAGO (água) =====
+        function criarLago(cx, cz) {
+            const tamanho = QUARTEIRAO - 8;
+            // Água
+            const agua = new THREE.Mesh(
+                new THREE.PlaneGeometry(tamanho, tamanho),
+                new THREE.MeshStandardMaterial({
+                    color: 0x1a8cff,
+                    transparent: true,
+                    opacity: 0.75,
+                    metalness: 0.3,
+                    roughness: 0.2,
+                    emissive: 0x003366,
+                    emissiveIntensity: 0.15
+                })
+            );
+            agua.rotation.x = -Math.PI / 2;
+            agua.position.set(cx, 0.08, cz);
+            agua.receiveShadow = true;
+            scene.add(agua);
+
+            // Margem (areia / terra)
+            const margem = new THREE.Mesh(
+                new THREE.PlaneGeometry(tamanho + 6, tamanho + 6),
+                new THREE.MeshStandardMaterial({ color: 0xc2a878, roughness: 0.95 })
+            );
+            margem.rotation.x = -Math.PI / 2;
+            margem.position.set(cx, 0.03, cz);
+            margem.receiveShadow = true;
+            scene.add(margem);
+
+            // Zona de afogamento
+            lagos.push({
+                x: cx,
+                z: cz,
+                raio: tamanho / 2 - 2
+            });
+
+            // Duas rampas em lados opostos para pular o lago
+            criarRampa(cx, cz + tamanho / 2 + 2, 0, 'pequena');           // sul → norte
+            criarRampa(cx, cz - tamanho / 2 - 2, Math.PI, 'pequena');     // norte → sul
+        }
+
+        // Calcula altura do chão em (wx, wz) — só em cima da rampa de verdade
+        function alturaNoChao(wx, wz) {
+            let maxH = 0;
+            let pitch = 0;
+            let onRamp = false;
+            let lancamento = 8;
+
+            for (const r of rampas) {
+                // Mundo → local da rampa
+                const dx = wx - r.x;
+                const dz = wz - r.z;
+                const cos = Math.cos(-r.rotY);
+                const sin = Math.sin(-r.rotY);
+                const lx = dx * cos - dz * sin;
+                const lz = dx * sin + dz * cos;
+
+                // Fora da largura da rampa → ignora
+                if (Math.abs(lx) > r.largura) continue;
+
+                // Fora do comprimento da rampa → ignora
+                if (lz < -r.comprimento || lz > r.comprimento) continue;
+
+                // Progresso na rampa: 0 na base (+Z), 1 no topo (-Z)
+                const t = (r.comprimento - lz) / (r.comprimento * 2);
+                const h = Math.max(0, Math.min(1, t)) * r.altura;
+
+                // Só considera "na rampa" se a altura for relevante
+                if (h > 0.15 && h >= maxH) {
+                    maxH = h;
+                    pitch = -r.angulo;
+                    onRamp = true;
+                    lancamento = r.lancamento || 8;
+                }
+            }
+            return { h: maxH, pitch, onRamp, lancamento };
+        }
+
+        // === Preenche os quarteirões ===
+        const coresCasa = [0xe8d5b7, 0xf5e6c8, 0xd4c4a8, 0xc9b8a0, 0xe0c8a0, 0xf0e0c0, 0xd8c0a0];
+        const coresPredio = [0x6a7a8a, 0x5a6a7a, 0x7a8a9a, 0x4a5a6a, 0x8a7a6a, 0x5c6c7c, 0x6b5b4b];
+        // Dados dos quarteirões para o minimapa (vista de cima)
+        const mapaQuarteiroes = [];
+
+        for (let bx = 0; bx < NUM_BLOCOS; bx++) {
+            for (let bz = 0; bz < NUM_BLOCOS; bz++) {
+                const cx = -half + RUA_LARGURA/2 + QUARTEIRAO/2 + bx * CELULA;
+                const cz = -half + RUA_LARGURA/2 + QUARTEIRAO/2 + bz * CELULA;
+
+                const tipo = Math.random();
+                let corMapa = '#888888';
+
+                if (tipo < 0.08) {
+                    // ===== LAGO com rampas para pular =====
+                    criarLago(cx, cz);
+                    corMapa = '#1a8cff';
+                } else if (tipo < 0.22) {
+                    // ===== Quarteirão só de GRAMA + 1 RAMPA =====
+                    criarGramaQuarteirao(cx, cz);
+                    const rot = Math.floor(Math.random() * 4) * (Math.PI / 2);
+                    criarRampa(cx, cz, rot, 'pequena');
+                    corMapa = '#3a9a4a';
+                } else if (tipo < 0.48) {
+                    // Residencial
+                    corMapa = '#e8d5b7'; // bege casas
+                    for (let i = 0; i < 3; i++) {
+                        for (let j = 0; j < 2; j++) {
+                            const ox = (i - 1) * 14 + (Math.random()-0.5)*3;
+                            const oz = (j - 0.5) * 16 + (Math.random()-0.5)*3;
+                            criarCasa(
+                                cx + ox, cz + oz,
+                                7 + Math.random()*3,
+                                6 + Math.random()*2,
+                                3.2 + Math.random()*2,
+                                coresCasa[Math.floor(Math.random()*coresCasa.length)]
+                            );
+                        }
+                    }
+                    for (let t = 0; t < 2; t++) {
+                        const ox = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 6);
+                        const oz = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 6);
+                        criarArvore(cx + ox, cz + oz);
+                    }
+                } else if (tipo < 0.62) {
+                    // ===== Comércio especial (mercado, hotel, loja, shopping, hospital, posto) =====
+                    const comercio = Math.random();
+                    if (comercio < 0.18) {
+                        criarSupermercado(cx, cz);
+                        corMapa = '#00aa44'; // verde mercado
+                    } else if (comercio < 0.32) {
+                        criarHotel(cx, cz);
+                        corMapa = '#d4a574'; // bege hotel
+                    } else if (comercio < 0.50) {
+                        // Várias lojas no quarteirão
+                        corMapa = '#c4a090'; // lojas
+                        const coresLoja = [0xe8c4a8, 0xa8c4d8, 0xd4b8a0, 0xb8c8b0, 0xd8c0c8, 0xc0c0d0];
+                        for (let i = 0; i < 2; i++) {
+                            for (let j = 0; j < 2; j++) {
+                                const ox = (i - 0.5) * 18;
+                                const oz = (j - 0.5) * 16;
+                                criarLoja(cx + ox, cz + oz, coresLoja[Math.floor(Math.random() * coresLoja.length)]);
+                            }
+                        }
+                    } else if (comercio < 0.68) {
+                        criarShopping(cx, cz);
+                        corMapa = '#7722aa'; // roxo shopping
+                    } else if (comercio < 0.85) {
+                        criarHospital(cx, cz);
+                        corMapa = '#ffffff'; // branco hospital
+                    } else {
+                        criarPosto(cx, cz);
+                        corMapa = '#e82500'; // vermelho posto
+                    }
+                } else if (tipo < 0.82) {
+                    // Misto / comercial comum
+                    corMapa = '#6a7a8a'; // cinza prédios
+                    const n = 2 + Math.floor(Math.random()*2);
+                    for (let i = 0; i < n; i++) {
+                        for (let j = 0; j < n; j++) {
+                            const ox = (i - (n-1)/2) * (QUARTEIRAO / n * 0.75);
+                            const oz = (j - (n-1)/2) * (QUARTEIRAO / n * 0.75);
+                            if (Math.random() > 0.3) {
+                                criarPredio(
+                                    cx + ox, cz + oz,
+                                    10 + Math.random()*6,
+                                    10 + Math.random()*5,
+                                    3 + Math.floor(Math.random()*6),
+                                    coresPredio[Math.floor(Math.random()*coresPredio.length)]
+                                );
+                            } else {
+                                criarLoja(cx + ox, cz + oz);
+                            }
+                        }
+                    }
+                } else {
+                    // Prédios altos
+                    corMapa = '#4a5a6a'; // cinza escuro
+                    criarPredio(cx - 12, cz - 10, 14, 14, 7 + Math.floor(Math.random()*6), coresPredio[Math.floor(Math.random()*coresPredio.length)]);
+                    criarPredio(cx + 12, cz + 10, 12, 13, 5 + Math.floor(Math.random()*5), coresPredio[Math.floor(Math.random()*coresPredio.length)]);
+                    if (Math.random() > 0.4) {
+                        criarPredio(cx + 8, cz - 12, 11, 10, 4 + Math.floor(Math.random()*4), coresPredio[Math.floor(Math.random()*coresPredio.length)]);
+                    }
+                }
+
+                let tipoBloco = 'misto';
+                if (corMapa === '#1a8cff') tipoBloco = 'lago';
+                else if (corMapa === '#3a9a4a') tipoBloco = 'grama';
+                else if (corMapa === '#e8d5b7') tipoBloco = 'casa';
+                else if (corMapa === '#00aa44') tipoBloco = 'mercado';
+                else if (corMapa === '#d4a574') tipoBloco = 'hotel';
+                else if (corMapa === '#c4a090') tipoBloco = 'loja';
+                else if (corMapa === '#7722aa') tipoBloco = 'shopping';
+                else if (corMapa === '#ffffff') tipoBloco = 'hospital';
+                else if (corMapa === '#e82500') tipoBloco = 'posto';
+                else if (corMapa === '#6a7a8a' || corMapa === '#4a5a6a') tipoBloco = 'predio';
+                mapaQuarteiroes.push({ cx, cz, cor: corMapa, tipo: tipoBloco });
+            }
+        }
+
+        // (árvores das calçadas removidas para não ficar no meio das ruas)
+
+        // ===== POSTES DE LUZ (dentro do quarteirão, nas quinas) =====
+        function criarPosteLuz(x, z) {
+            const g = new THREE.Group();
+            const metal = new THREE.MeshStandardMaterial({ color: 0x3a3a42, metalness: 0.6, roughness: 0.4 });
+            const metalEscuro = new THREE.MeshStandardMaterial({ color: 0x222228, metalness: 0.5, roughness: 0.5 });
+
+            // Base
+            const base = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.35, 0.4, 0.25, 8),
+                metalEscuro
+            );
+            base.position.y = 0.12;
+            g.add(base);
+
+            // Poste principal
+            const poste = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.1, 0.14, 6.2, 8),
+                metal
+            );
+            poste.position.y = 3.3;
+            poste.castShadow = true;
+            g.add(poste);
+
+            // Anéis decorativos
+            [1.5, 3.5, 5.5].forEach(hy => {
+                const anel = new THREE.Mesh(
+                    new THREE.TorusGeometry(0.16, 0.04, 6, 12),
+                    metalEscuro
+                );
+                anel.rotation.x = Math.PI / 2;
+                anel.position.y = hy;
+                g.add(anel);
+            });
+
+            // Braço curvo
+            const braco = new THREE.Mesh(
+                new THREE.BoxGeometry(1.4, 0.08, 0.08),
+                metal
+            );
+            braco.position.set(0.55, 6.5, 0);
+            g.add(braco);
+            // Suporte diagonal
+            const suporte = new THREE.Mesh(
+                new THREE.BoxGeometry(0.9, 0.05, 0.05),
+                metal
+            );
+            suporte.position.set(0.35, 6.15, 0);
+            suporte.rotation.z = -0.5;
+            g.add(suporte);
+
+            // Luminária
+            const cupula = new THREE.Mesh(
+                new THREE.SphereGeometry(0.28, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+                new THREE.MeshStandardMaterial({ color: 0x444450, metalness: 0.7, roughness: 0.3 })
+            );
+            cupula.position.set(1.1, 6.45, 0);
+            g.add(cupula);
+            const vidro = new THREE.Mesh(
+                new THREE.SphereGeometry(0.22, 10, 8),
+                new THREE.MeshStandardMaterial({
+                    color: 0xfff5cc, emissive: 0xffeebb, emissiveIntensity: 0.35,
+                    transparent: true, opacity: 0.85
+                })
+            );
+            vidro.position.set(1.1, 6.35, 0);
+            g.add(vidro);
+
+            g.position.set(x, 0, z);
+            // Orienta o braço para fora da esquina (para a rua)
+            scene.add(g);
+            return g;
+        }
+        // Postes só em alguns quarteirões (não em todos), 1–2 quinas
+        mapaQuarteiroes.forEach((q, qi) => {
+            if (q.tipo === 'lago') return;
+            if (qi % 3 !== 0) return; // só ~1/3 dos quarteirões
+            const m = QUARTEIRAO / 2 - 3;
+            const quinas = [
+                [q.cx - m, q.cz - m, Math.PI / 4],
+                [q.cx + m, q.cz - m, -Math.PI / 4],
+                [q.cx - m, q.cz + m, 3 * Math.PI / 4],
+                [q.cx + m, q.cz + m, -3 * Math.PI / 4]
+            ];
+            // Escolhe 1 ou 2 quinas aleatórias
+            const n = 1 + Math.floor(Math.random() * 2);
+            for (let k = 0; k < n; k++) {
+                const idx = Math.floor(Math.random() * quinas.length);
+                const [px, pz, rot] = quinas.splice(idx, 1)[0];
+                const poste = criarPosteLuz(px, pz);
+                poste.rotation.y = rot;
+            }
+        });
+
+        // ==================== CARRO ====================
+        const carro = new THREE.Group();
+
+        // ===== CARRO ESPORTIVO DETALHADO =====
+        const pintura = new THREE.MeshStandardMaterial({
+            color: 0xff0505, metalness: 0.65, roughness: 0.1,
+            emissive: 0x880000, emissiveIntensity: 0.3
+        });
+        const pinturaEscura = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.85, roughness: 0.25 });
+        const vidroAzul = new THREE.MeshStandardMaterial({
+            color: 0x1a9fff, transparent: true, opacity: 0.58,
+            metalness: 0.9, roughness: 0.05, emissive: 0x0088ee, emissiveIntensity: 0.55
+        });
+        const cromado = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.95, roughness: 0.08 });
+
+        // Chassi inferior
+        const chassi = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.22, 3.4), pinturaEscura);
+        chassi.position.y = 0.28;
+        chassi.castShadow = true;
+        carro.add(chassi);
+
+        // Corpo principal (baixo e alongado)
+        const corpo = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.38, 3.1), pintura);
+        corpo.position.y = 0.52;
+        corpo.castShadow = true;
+        carro.add(corpo);
+
+        // Capô (ligeiramente mais baixo na frente)
+        const capo = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 1.0), pintura);
+        capo.position.set(0, 0.72, 0.95);
+        capo.rotation.x = 0.08;
+        capo.castShadow = true;
+        carro.add(capo);
+
+        // Entradas de ar no capô
+        const entradaMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+        [[-0.35, 0.78, 0.9], [0.35, 0.78, 0.9]].forEach(pos => {
+            const e = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.06, 0.45), entradaMat);
+            e.position.set(...pos);
+            carro.add(e);
+        });
+
+        // Cabine / teto esportivo
+        const cabine = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.38, 1.35), pintura);
+        cabine.position.set(0, 0.9, -0.15);
+        cabine.castShadow = true;
+        carro.add(cabine);
+
+        // Para-brisa frontal azul
+        const parabrisa = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.38, 0.06), vidroAzul);
+        parabrisa.position.set(0, 0.92, 0.52);
+        parabrisa.rotation.x = -0.35;
+        carro.add(parabrisa);
+
+        // Vidro traseiro azul
+        const vidroTras = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.32, 0.06), vidroAzul);
+        vidroTras.position.set(0, 0.9, -0.8);
+        vidroTras.rotation.x = 0.3;
+        carro.add(vidroTras);
+
+        // Vidros laterais azuis
+        [[-0.64, 0.88, -0.1], [0.64, 0.88, -0.1]].forEach(pos => {
+            const lat = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.28, 1.1), vidroAzul);
+            lat.position.set(...pos);
+            carro.add(lat);
+        });
+
+        // Saia lateral
+        [[-0.88, 0.35, 0], [0.88, 0.35, 0]].forEach(pos => {
+            const saia = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 2.6), pinturaEscura);
+            saia.position.set(...pos);
+            saia.castShadow = true;
+            carro.add(saia);
+        });
+
+        // Aerofólio traseiro
+        const aeroBase = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.45, 0.12), pinturaEscura);
+        aeroBase.position.set(-0.55, 1.05, -1.45);
+        carro.add(aeroBase);
+        const aeroBase2 = aeroBase.clone();
+        aeroBase2.position.x = 0.55;
+        carro.add(aeroBase2);
+
+        const aeroAsa = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.08, 0.4), pintura);
+        aeroAsa.position.set(0, 1.28, -1.45);
+        aeroAsa.rotation.x = -0.15;
+        aeroAsa.castShadow = true;
+        carro.add(aeroAsa);
+
+        // Aba do aerofólio
+        const aeroAba = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.12, 0.05), pinturaEscura);
+        aeroAba.position.set(0, 1.32, -1.62);
+        carro.add(aeroAba);
+
+        // Faróis esportivos + luz real (noite)
+        const farolMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffaa, emissiveIntensity: 2.0 });
+        [[-0.5, 0.5, 1.58], [0.5, 0.5, 1.58]].forEach(pos => {
+            const f = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.12), farolMat);
+            f.position.set(...pos);
+            carro.add(f);
+        });
+        // Spotlights dos faróis
+        const farolEsq = new THREE.SpotLight(0xffffee, 2.2, 45, Math.PI / 7, 0.4, 1);
+        farolEsq.position.set(-0.5, 0.55, 1.7);
+        farolEsq.target.position.set(-0.5, 0.2, 12);
+        carro.add(farolEsq);
+        carro.add(farolEsq.target);
+        const farolDir = new THREE.SpotLight(0xffffee, 2.2, 45, Math.PI / 7, 0.4, 1);
+        farolDir.position.set(0.5, 0.55, 1.7);
+        farolDir.target.position.set(0.5, 0.2, 12);
+        carro.add(farolDir);
+        carro.add(farolDir.target);
+
+        // Lanternas traseiras
+        const lanternaMat = new THREE.MeshStandardMaterial({ color: 0xff2200, emissive: 0xff1100, emissiveIntensity: 1.4 });
+        [[-0.5, 0.5, -1.58], [0.5, 0.5, -1.58]].forEach(pos => {
+            const l = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.1), lanternaMat);
+            l.position.set(...pos);
+            carro.add(l);
+        });
+
+        // Grade frontal
+        const grade = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.2, 0.08), entradaMat);
+        grade.position.set(0, 0.38, 1.62);
+        carro.add(grade);
+
+        // Escapamentos
+        const escapamentosJogador = [];
+        [[-0.35, 0.25, -1.65], [0.35, 0.25, -1.65]].forEach(pos => {
+            const esc = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.2, 10), cromado);
+            esc.rotation.x = Math.PI / 2;
+            esc.position.set(...pos);
+            carro.add(esc);
+            escapamentosJogador.push(pos);
+        });
+
+        // Fogo/fumaça vermelha do escapamento do jogador
+        const fogoParticulas = [];
+        function criarParticulaFogo() {
+            const p = new THREE.Mesh(
+                new THREE.SphereGeometry(0.12, 6, 6),
+                new THREE.MeshBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0.85 })
+            );
+            p.visible = false;
+            scene.add(p);
+            fogoParticulas.push({ mesh: p, vida: 0, maxVida: 0.4, vx: 0, vy: 0, vz: 0 });
+        }
+        for (let i = 0; i < 24; i++) criarParticulaFogo();
+
+        function emitirFogoJogador() {
+            if (Math.abs(estado.speed) < 0.05) return;
+            for (const fp of fogoParticulas) {
+                if (fp.vida <= 0) {
+                    const lado = Math.random() > 0.5 ? escapamentosJogador[0] : escapamentosJogador[1];
+                    const cos = Math.cos(estado.angle);
+                    const sin = Math.sin(estado.angle);
+                    // Posição local do escapamento → mundo
+                    const lx = lado[0], ly = lado[1], lz = lado[2] - 0.3;
+                    fp.mesh.position.set(
+                        estado.x + lx * cos + lz * sin,
+                        estado.y + ly,
+                        estado.z - lx * sin + lz * cos
+                    );
+                    fp.vx = -sin * (0.8 + Math.random() * 0.6) + (Math.random() - 0.5) * 0.3;
+                    fp.vy = 0.5 + Math.random() * 0.8;
+                    fp.vz = -cos * (0.8 + Math.random() * 0.6) + (Math.random() - 0.5) * 0.3;
+                    fp.vida = fp.maxVida = 0.25 + Math.random() * 0.25;
+                    fp.mesh.visible = true;
+                    fp.mesh.material.color.setHex(Math.random() > 0.4 ? 0xff2200 : 0xff8800);
+                    fp.mesh.material.opacity = 0.9;
+                    fp.mesh.scale.setScalar(0.8 + Math.random() * 0.6);
+                    break;
+                }
+            }
+        }
+
+        function atualizarFogo(dt) {
+            for (const fp of fogoParticulas) {
+                if (fp.vida <= 0) { fp.mesh.visible = false; continue; }
+                fp.vida -= dt;
+                fp.mesh.position.x += fp.vx * dt * 8;
+                fp.mesh.position.y += fp.vy * dt * 6;
+                fp.mesh.position.z += fp.vz * dt * 8;
+                fp.mesh.material.opacity = Math.max(0, fp.vida / fp.maxVida);
+                fp.mesh.scale.multiplyScalar(1.02);
+                if (fp.vida <= 0) fp.mesh.visible = false;
+            }
+        }
+
+        // Rodas esportivas com calota
+        const rodaGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.32, 18);
+        const rodaMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.75 });
+        const calotaMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.9, roughness: 0.15 });
+        const rodaPos = [
+            [-0.88, 0.34, 1.1],
+            [0.88, 0.34, 1.1],
+            [-0.88, 0.34, -1.1],
+            [0.88, 0.34, -1.1]
+        ];
+
+        const rodas = [];
+        rodaPos.forEach(pos => {
+            const grupoRoda = new THREE.Group();
+            const roda = new THREE.Mesh(rodaGeo, rodaMat);
+            roda.rotation.z = Math.PI / 2;
+            grupoRoda.add(roda);
+            // Calota
+            const calota = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 12), calotaMat);
+            calota.rotation.z = Math.PI / 2;
+            grupoRoda.add(calota);
+            grupoRoda.position.set(...pos);
+            carro.add(grupoRoda);
+            rodas.push(grupoRoda);
+        });
+
+        scene.add(carro);
+
+        // ===== AVIÃO (passa de vez em quando) =====
+        function criarAviao() {
+            const g = new THREE.Group();
+            const branco = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, metalness: 0.4, roughness: 0.4 });
+            const azul = new THREE.MeshStandardMaterial({ color: 0x2266aa, metalness: 0.3, roughness: 0.5 });
+            // Fuselagem
+            const fus = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 8), branco);
+            g.add(fus);
+            // Cabine
+            const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 2.5), azul);
+            cab.position.set(0, 0.45, 1.5);
+            g.add(cab);
+            // Asas
+            const asa = new THREE.Mesh(new THREE.BoxGeometry(12, 0.15, 2.2), branco);
+            asa.position.set(0, 0, 0);
+            g.add(asa);
+            // Estabilizador
+            const estab = new THREE.Mesh(new THREE.BoxGeometry(4, 0.12, 1.2), branco);
+            estab.position.set(0, 0.3, -3.5);
+            g.add(estab);
+            const deriva = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.4, 1.5), azul);
+            deriva.position.set(0, 0.9, -3.6);
+            g.add(deriva);
+            // Motores
+            [[-3.5, -0.3, 0.3], [3.5, -0.3, 0.3]].forEach(pos => {
+                const m = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 1.5, 8), azul);
+                m.rotation.x = Math.PI / 2;
+                m.position.set(...pos);
+                g.add(m);
+            });
+            g.scale.setScalar(2.5);
+            g.visible = false;
+            scene.add(g);
+            return g;
+        }
+        const aviao = criarAviao();
+        let aviaoTimer = 8 + Math.random() * 12; // primeiros segundos
+        let aviaoAtivo = false;
+        let aviaoVel = { x: 0, z: 0 };
+
+        function iniciarPassagemAviao() {
+            // Percorre o mapa inteiro
+            const eixo = Math.random() > 0.5 ? 'x' : 'z';
+            const sentido = Math.random() > 0.5 ? 1 : -1;
+            const altura = 45 + Math.random() * 35;
+            const margem = half + 80;
+            if (eixo === 'x') {
+                aviao.position.set(-sentido * margem, altura, (Math.random() - 0.5) * half * 1.5);
+                aviaoVel.x = sentido * (28 + Math.random() * 12);
+                aviaoVel.z = (Math.random() - 0.5) * 4;
+            } else {
+                aviao.position.set((Math.random() - 0.5) * half * 1.5, altura, -sentido * margem);
+                aviaoVel.x = (Math.random() - 0.5) * 4;
+                aviaoVel.z = sentido * (28 + Math.random() * 12);
+            }
+            aviao.rotation.y = Math.atan2(aviaoVel.x, aviaoVel.z);
+            aviao.visible = true;
+            aviaoAtivo = true;
+        }
+
+        function atualizarAviao(dt) {
+            if (!aviaoAtivo) {
+                aviaoTimer -= dt;
+                if (aviaoTimer <= 0) {
+                    iniciarPassagemAviao();
+                    aviaoTimer = 20 + Math.random() * 30;
+                }
+                return;
+            }
+            aviao.position.x += aviaoVel.x * dt;
+            aviao.position.z += aviaoVel.z * dt;
+            aviao.position.y += Math.sin(performance.now() * 0.001) * 0.04;
+            const lim = half + 120;
+            if (Math.abs(aviao.position.x) > lim || Math.abs(aviao.position.z) > lim) {
+                aviao.visible = false;
+                aviaoAtivo = false;
+            }
+        }
+
+        // ==================== POLÍCIA (3 viaturas) ====================
+        function criarViatura() {
+            const g = new THREE.Group();
+            const preto = new THREE.MeshStandardMaterial({ color: 0x111122, metalness: 0.55, roughness: 0.35 });
+            const branco = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, metalness: 0.3, roughness: 0.4 });
+            const azulPol = new THREE.MeshStandardMaterial({ color: 0x0033aa, metalness: 0.4, roughness: 0.4 });
+            const vidroP = new THREE.MeshStandardMaterial({
+                color: 0x1a9fff, transparent: true, opacity: 0.55,
+                metalness: 0.9, roughness: 0.05, emissive: 0x0088ee, emissiveIntensity: 0.4
+            });
+            const escuro = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.8 });
+
+            // Chassi
+            const chassi = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.2, 3.3), escuro);
+            chassi.position.y = 0.25;
+            chassi.castShadow = true;
+            g.add(chassi);
+
+            // Corpo principal preto
+            const corpo = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.4, 3.15), preto);
+            corpo.position.y = 0.5;
+            corpo.castShadow = true;
+            g.add(corpo);
+
+            // Faixas brancas laterais
+            [[-0.84, 0.5, 0], [0.84, 0.5, 0]].forEach(pos => {
+                const f = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.25, 2.8), branco);
+                f.position.set(...pos);
+                g.add(f);
+            });
+
+            // Faixa branca no capô
+            const faixaCapo = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.06, 1.2), branco);
+            faixaCapo.position.set(0, 0.72, 0.85);
+            g.add(faixaCapo);
+
+            // Capô
+            const capo = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 1.0), preto);
+            capo.position.set(0, 0.7, 0.9);
+            capo.castShadow = true;
+            g.add(capo);
+
+            // Cabine
+            const cab = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.42, 1.4), preto);
+            cab.position.set(0, 0.88, -0.15);
+            cab.castShadow = true;
+            g.add(cab);
+
+            // Vidros
+            const parabrisa = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.35, 0.06), vidroP);
+            parabrisa.position.set(0, 0.9, 0.55);
+            parabrisa.rotation.x = -0.3;
+            g.add(parabrisa);
+
+            const vidroTras = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.3, 0.06), vidroP);
+            vidroTras.position.set(0, 0.88, -0.82);
+            vidroTras.rotation.x = 0.25;
+            g.add(vidroTras);
+
+            [[-0.66, 0.88, -0.1], [0.66, 0.88, -0.1]].forEach(pos => {
+                const lat = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.28, 1.1), vidroP);
+                lat.position.set(...pos);
+                g.add(lat);
+            });
+
+            // Faixa azul POLICIA no lado
+            [[-0.86, 0.55, -0.1], [0.86, 0.55, -0.1]].forEach(pos => {
+                const fb = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.18, 1.4), azulPol);
+                fb.position.set(...pos);
+                g.add(fb);
+            });
+
+            // Base do giroflex
+            const baseGiro = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.4), escuro);
+            baseGiro.position.set(0, 1.12, -0.15);
+            g.add(baseGiro);
+
+            // Giroflex vermelho / azul
+            const luzR = new THREE.Mesh(
+                new THREE.BoxGeometry(0.38, 0.22, 0.38),
+                new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.0 })
+            );
+            luzR.position.set(-0.28, 1.28, -0.15);
+            g.add(luzR);
+
+            const luzB = new THREE.Mesh(
+                new THREE.BoxGeometry(0.38, 0.22, 0.38),
+                new THREE.MeshStandardMaterial({ color: 0x0066ff, emissive: 0x0066ff, emissiveIntensity: 1.0 })
+            );
+            luzB.position.set(0.28, 1.28, -0.15);
+            g.add(luzB);
+
+            // Faróis
+            const farolP = new THREE.MeshStandardMaterial({ color: 0xffffee, emissive: 0xffffaa, emissiveIntensity: 0.7 });
+            [[-0.48, 0.48, 1.58], [0.48, 0.48, 1.58]].forEach(pos => {
+                const f = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.14, 0.1), farolP);
+                f.position.set(...pos);
+                g.add(f);
+            });
+
+            // Lanternas
+            const lantP = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 0.6 });
+            [[-0.48, 0.48, -1.58], [0.48, 0.48, -1.58]].forEach(pos => {
+                const l = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.12, 0.1), lantP);
+                l.position.set(...pos);
+                g.add(l);
+            });
+
+            // Grade
+            const grade = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.18, 0.08), escuro);
+            grade.position.set(0, 0.35, 1.6);
+            g.add(grade);
+
+            // Para-choques
+            const pcF = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.18, 0.25), branco);
+            pcF.position.set(0, 0.28, 1.55);
+            g.add(pcF);
+            const pcT = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.18, 0.25), branco);
+            pcT.position.set(0, 0.28, -1.55);
+            g.add(pcT);
+
+            // Texto POLICE (placa branca nas laterais)
+            [[-0.87, 0.55, 0], [0.87, 0.55, 0]].forEach((pos, idx) => {
+                const placa = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.06, 0.35, 1.6),
+                    new THREE.MeshStandardMaterial({ color: 0xffffff })
+                );
+                placa.position.set(...pos);
+                g.add(placa);
+                // Letras approx com blocos
+                const letraMat = new THREE.MeshStandardMaterial({ color: 0x0033aa });
+                for (let k = 0; k < 6; k++) {
+                    const letra = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.22, 0.12), letraMat);
+                    letra.position.set(pos[0] + (idx === 0 ? -0.05 : 0.05), pos[1], -0.55 + k * 0.22);
+                    g.add(letra);
+                }
+            });
+
+            // Retrovisores
+            [[-0.95, 0.75, 0.5], [0.95, 0.75, 0.5]].forEach(pos => {
+                const ret = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.25, 0.15, 0.2),
+                    new THREE.MeshStandardMaterial({ color: 0x222222 })
+                );
+                ret.position.set(...pos);
+                g.add(ret);
+            });
+
+            // Escapamentos
+            const cromP = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.15 });
+            [[-0.35, 0.22, -1.65], [0.35, 0.22, -1.65]].forEach(pos => {
+                const esc = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.18, 8), cromP);
+                esc.rotation.x = Math.PI / 2;
+                esc.position.set(...pos);
+                g.add(esc);
+            });
+
+            // Saias laterais
+            [[-0.9, 0.32, 0], [0.9, 0.32, 0]].forEach(pos => {
+                const saia = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.1, 0.15, 2.8),
+                    new THREE.MeshStandardMaterial({ color: 0x0a0a15 })
+                );
+                saia.position.set(...pos);
+                g.add(saia);
+            });
+
+            // Rodas
+            const rodaGeoP = new THREE.CylinderGeometry(0.32, 0.32, 0.28, 14);
+            const rodaMatP = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+            const calotaP = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.2 });
+            [[-0.88, 0.32, 1.05], [0.88, 0.32, 1.05], [-0.88, 0.32, -1.05], [0.88, 0.32, -1.05]].forEach(pos => {
+                const rd = new THREE.Mesh(rodaGeoP, rodaMatP);
+                rd.rotation.z = Math.PI / 2;
+                rd.position.set(...pos);
+                rd.castShadow = true;
+                g.add(rd);
+                const cal = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 10), calotaP);
+                cal.rotation.z = Math.PI / 2;
+                cal.position.set(...pos);
+                g.add(cal);
+            });
+
+            scene.add(g);
+            return { mesh: g, luzR, luzB };
+        }
+
+        // Fumaça branca da polícia
+        const fumacaPolicia = [];
+        function criarParticulaFumaca() {
+            const p = new THREE.Mesh(
+                new THREE.SphereGeometry(0.15, 6, 6),
+                new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 })
+            );
+            p.visible = false;
+            scene.add(p);
+            fumacaPolicia.push({ mesh: p, vida: 0, maxVida: 0.5, vx: 0, vy: 0, vz: 0 });
+        }
+        for (let i = 0; i < 36; i++) criarParticulaFumaca();
+
+        function emitirFumacaPolicia(px, py, pz, ang, spd) {
+            if (spd < 0.03) return;
+            for (const fp of fumacaPolicia) {
+                if (fp.vida <= 0) {
+                    const sin = Math.sin(ang), cos = Math.cos(ang);
+                    const lado = Math.random() > 0.5 ? -0.35 : 0.35;
+                    fp.mesh.position.set(
+                        px + lado * cos - 1.7 * sin,
+                        py + 0.25,
+                        pz - lado * sin - 1.7 * cos
+                    );
+                    fp.vx = -sin * 0.5 + (Math.random() - 0.5) * 0.4;
+                    fp.vy = 0.4 + Math.random() * 0.5;
+                    fp.vz = -cos * 0.5 + (Math.random() - 0.5) * 0.4;
+                    fp.vida = fp.maxVida = 0.35 + Math.random() * 0.3;
+                    fp.mesh.visible = true;
+                    fp.mesh.material.opacity = 0.75;
+                    fp.mesh.scale.setScalar(0.9 + Math.random() * 0.5);
+                    break;
+                }
+            }
+        }
+
+        function atualizarFumacaPolicia(dt) {
+            for (const fp of fumacaPolicia) {
+                if (fp.vida <= 0) { fp.mesh.visible = false; continue; }
+                fp.vida -= dt;
+                fp.mesh.position.x += fp.vx * dt * 6;
+                fp.mesh.position.y += fp.vy * dt * 5;
+                fp.mesh.position.z += fp.vz * dt * 6;
+                fp.mesh.material.opacity = Math.max(0, (fp.vida / fp.maxVida) * 0.7);
+                fp.mesh.scale.multiplyScalar(1.03);
+                if (fp.vida <= 0) fp.mesh.visible = false;
+            }
+        }
+
+        const POLICIA_MAX_SPEED = 130 / 180; // 130 km/h
+        const POLICIA_RAIO = 8;
+        const POLICIA_PARAR = 3; // para a 3 metros (não atravessa)
+        const POLICIA_TEMPO_CAPTURA = 5; // segundos
+        const SUPER_DURACAO = 30; // segundos de imunidade
+
+        // ===== CAIXAS DE SUPER PODER (?) =====
+        const caixasPoder = [];
+
+        function criarCaixaPoder(x, z) {
+            const g = new THREE.Group();
+
+            // Caixa amarela
+            const box = new THREE.Mesh(
+                new THREE.BoxGeometry(2.2, 2.2, 2.2),
+                new THREE.MeshStandardMaterial({
+                    color: 0xffcc00,
+                    metalness: 0.3,
+                    roughness: 0.4,
+                    emissive: 0xaa8800,
+                    emissiveIntensity: 0.35
+                })
+            );
+            box.position.y = 1.4;
+            box.castShadow = true;
+            g.add(box);
+
+            // Borda escura
+            const borda = new THREE.Mesh(
+                new THREE.BoxGeometry(2.35, 2.35, 2.35),
+                new THREE.MeshStandardMaterial({ color: 0x886600, wireframe: true })
+            );
+            borda.position.y = 1.4;
+            g.add(borda);
+
+            // Ponto de interrogação (feito com barras simples)
+            const qMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                emissive: 0xffffff,
+                emissiveIntensity: 0.5
+            });
+            // Haste do ?
+            const haste = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.9, 0.35), qMat);
+            haste.position.set(0, 1.7, 1.15);
+            g.add(haste);
+            // Curva superior do ?
+            const topo = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 0.35), qMat);
+            topo.position.set(0, 2.25, 1.15);
+            g.add(topo);
+            const lado = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, 0.35), qMat);
+            lado.position.set(0.35, 2.0, 1.15);
+            g.add(lado);
+            // Ponto do ?
+            const ponto = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), qMat);
+            ponto.position.set(0, 1.15, 1.15);
+            g.add(ponto);
+
+            g.position.set(x, 0, z);
+            scene.add(g);
+
+            caixasPoder.push({
+                mesh: g,
+                box,
+                x, z,
+                ativa: true,
+                rot: 0
+            });
+        }
+
+        // Espalha caixas com mínimo de 3 quarteirões de distância
+        const MIN_DIST_CAIXA = 3 * CELULA;
+        const posCaixas = [];
+        let tentativasCaixa = 0;
+        while (posCaixas.length < 14 && tentativasCaixa < 400) {
+            tentativasCaixa++;
+            const bx = Math.floor(Math.random() * (NUM_BLOCOS + 1));
+            const bz = Math.floor(Math.random() * (NUM_BLOCOS + 1));
+            const px = -half + bx * CELULA + (Math.random() - 0.5) * 6;
+            const pz = -half + bz * CELULA + (Math.random() - 0.5) * 6;
+            let ok = true;
+            for (const p of posCaixas) {
+                if (Math.hypot(px - p.x, pz - p.z) < MIN_DIST_CAIXA) { ok = false; break; }
+            }
+            if (!ok) continue;
+            posCaixas.push({ x: px, z: pz });
+            criarCaixaPoder(px, pz);
+        }
+
+        // ===== MOEDAS =====
+        const moedas = [];
+        let moedasColetadas = 0;
+        let kmRodados = 0; // quilômetros percorridos
+        const PONTOS_POR_MOEDA = 100;
+
+        function criarMoeda(x, z) {
+            const g = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0xffd700,
+                metalness: 0.9,
+                roughness: 0.2,
+                emissive: 0xaa8800,
+                emissiveIntensity: 0.35
+            });
+            // Só a moeda de ouro (um pouco maior)
+            const disco = new THREE.Mesh(
+                new THREE.CylinderGeometry(1.45, 1.45, 0.25, 22),
+                mat
+            );
+            disco.rotation.x = Math.PI / 2;
+            disco.castShadow = true;
+            g.add(disco);
+
+            g.position.set(x, 1.6, z);
+            scene.add(g);
+
+            moedas.push({
+                mesh: g,
+                disco,
+                x, z,
+                ativa: true
+            });
+        }
+
+        // Mais moedas espalhadas pela cidade
+        for (let i = 0; i < 120; i++) {
+            // Posição aleatória em qualquer rua da grade
+            const aoLongoX = Math.random() > 0.5;
+            if (aoLongoX) {
+                // Rua horizontal
+                const linha = Math.floor(Math.random() * (NUM_BLOCOS + 1));
+                const pz = -half + linha * CELULA + (Math.random() - 0.5) * 4;
+                const px = -half + Math.random() * (NUM_BLOCOS * CELULA);
+                criarMoeda(px, pz);
+            } else {
+                // Rua vertical
+                const coluna = Math.floor(Math.random() * (NUM_BLOCOS + 1));
+                const px = -half + coluna * CELULA + (Math.random() - 0.5) * 4;
+                const pz = -half + Math.random() * (NUM_BLOCOS * CELULA);
+                criarMoeda(px, pz);
+            }
+        }
+
+        function atualizarMoedas(dt) {
+            moedas.forEach(m => {
+                if (!m.ativa) {
+                    m.mesh.visible = false;
+                    return;
+                }
+                m.mesh.visible = true;
+                m.rot = (m.rot || 0) + dt * 3;
+                m.disco.rotation.z = m.rot;
+                m.mesh.position.y = 1.5 + Math.sin(m.rot * 2) * 0.25;
+
+                const dx = estado.x - m.x;
+                const dz = estado.z - m.z;
+                if (Math.sqrt(dx * dx + dz * dz) < 3.5) {
+                    m.ativa = false;
+                    moedasColetadas++;
+                    const el = document.getElementById('moedasInfo');
+                    if (el) el.textContent = '' + moedasColetadas;
+                    const elP = document.getElementById('pontosInfo');
+                    if (elP) elP.textContent = '' + (moedasColetadas * PONTOS_POR_MOEDA);
+                }
+            });
+        }
+
+        // Poder atual: null | 'pulo' | 'imune' | 'nitro_extra'
+        // Sorteio silencioso — só um poder por vez, sem aviso na tela
+        let poderAtual = null;
+        let superPoderTempo = 0;
+
+        function sortearPoder() {
+            // Limpa poder anterior (só pode ter um)
+            poderAtual = null;
+            superPoderTempo = 0;
+            estado.pulosRestantes = 0;
+
+            const tipos = ['pulo', 'imune', 'nitro_extra'];
+            const escolhido = tipos[Math.floor(Math.random() * tipos.length)];
+            poderAtual = escolhido;
+
+            if (escolhido === 'pulo') {
+                estado.pulosRestantes = 3; // 3 pulos (no ar também); acaba ao usar os 3
+            } else if (escolhido === 'imune') {
+                superPoderTempo = SUPER_DURACAO;
+                tempoCapturaGlobal = 0;
+            } else if (escolhido === 'nitro_extra') {
+                // Enche o nitro na hora
+                estado.nitroTempo = estado.nitroMaxTempo;
+                estado.nitroRecarga = 0;
+            }
+            // Nenhum texto na tela — sorteio invisível
+        }
+
+        function atualizarCaixasPoder(dt) {
+            caixasPoder.forEach(c => {
+                if (!c.ativa) {
+                    c.mesh.visible = false;
+                    return;
+                }
+                c.mesh.visible = true;
+                c.rot += dt * 1.5;
+                c.box.rotation.y = c.rot;
+                c.box.position.y = 1.4 + Math.sin(c.rot * 2) * 0.25;
+
+                const dx = estado.x - c.x;
+                const dz = estado.z - c.z;
+                if (Math.sqrt(dx * dx + dz * dz) < 3.5) {
+                    c.ativa = false;
+                    sortearPoder(); // sorteio silencioso de 1 poder
+                }
+            });
+
+            // Imunidade por tempo
+            if (poderAtual === 'imune' && superPoderTempo > 0) {
+                superPoderTempo = Math.max(0, superPoderTempo - dt);
+                if (superPoderTempo === 0) poderAtual = null;
+            }
+
+            // Poder de pulo acaba quando os 3 pulos acabam
+            if (poderAtual === 'pulo' && estado.pulosRestantes <= 0) {
+                poderAtual = null;
+            }
+
+            // Nitro extra é instantâneo — já aplicou no sorteio
+            if (poderAtual === 'nitro_extra') {
+                poderAtual = null;
+            }
+        }
+
+        // Jogador começa no meio; polícia 5 quarteirões atrás
+        const playerStartZ = -half + Math.floor(NUM_BLOCOS / 2) * CELULA;
+        const atras5 = 5 * CELULA;
+
+        const policias = [];
+        const spawnsPolicia = [
+            { x: -12, z: playerStartZ - atras5 },
+            { x: 0, z: playerStartZ - atras5 - 15 },
+            { x: 12, z: playerStartZ - atras5 - 30 }
+        ];
+        for (let i = 0; i < 3; i++) {
+            const v = criarViatura();
+            policias.push({
+                mesh: v.mesh,
+                luzR: v.luzR,
+                luzB: v.luzB,
+                x: spawnsPolicia[i].x,
+                z: spawnsPolicia[i].z,
+                angle: 0,
+                speed: 0,
+                tempoPerto: 0
+            });
+            v.mesh.position.set(spawnsPolicia[i].x, 0, spawnsPolicia[i].z);
+        }
+
+        // ===== MINIMAPA local: 2 quarteirões em volta do carro =====
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapCtx = minimapCanvas.getContext('2d');
+        const MINI_BLOCOS = 2; // raio em quarteirões
+        const MINI_RANGE = MINI_BLOCOS * CELULA; // metade da área visível
+        // Barreira invisível: não deixa chegar na areia
+        const BARREIRA_LIMITE = BORDA_CIDADE - 1;
+
+        function desenharMinimapa() {
+            const ctx = minimapCtx;
+            const W = minimapCanvas.width;
+            const H = minimapCanvas.height;
+            ctx.clearRect(0, 0, W, H);
+
+            // Fundo escuro (ruas)
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, W, H);
+
+            // Coordenadas centradas no jogador
+            function worldToMini(wx, wz) {
+                return {
+                    x: ((wx - estado.x + MINI_RANGE) / (MINI_RANGE * 2)) * W,
+                    y: ((wz - estado.z + MINI_RANGE) / (MINI_RANGE * 2)) * H
+                };
+            }
+
+            const gap = 1.5;
+            const blocoMini = (QUARTEIRAO / (MINI_RANGE * 2)) * W;
+
+            // Versão anterior: blocos verdes + lagos azuis + pontinhos de prédios
+            mapaQuarteiroes.forEach(q => {
+                const dx = q.cx - estado.x;
+                const dz = q.cz - estado.z;
+                if (Math.abs(dx) > MINI_RANGE + QUARTEIRAO || Math.abs(dz) > MINI_RANGE + QUARTEIRAO) return;
+
+                const p = worldToMini(q.cx - QUARTEIRAO / 2, q.cz - QUARTEIRAO / 2);
+                const r = 3;
+                const x = p.x + gap, y = p.y + gap, w = blocoMini - gap * 2, h = blocoMini - gap * 2;
+                if (x + w < 0 || y + h < 0 || x > W || y > H) return;
+
+                // Sempre um quadrado verde
+                ctx.fillStyle = '#2d8a3e';
+                ctx.beginPath();
+                ctx.moveTo(x + r, y);
+                ctx.arcTo(x + w, y, x + w, y + h, r);
+                ctx.arcTo(x + w, y + h, x, y + h, r);
+                ctx.arcTo(x, y + h, x, y, r);
+                ctx.arcTo(x, y, x + w, y, r);
+                ctx.closePath();
+                ctx.fill();
+
+                const cx = x + w / 2, cy = y + h / 2;
+
+                // Lago = círculo azul maior no meio do quadrado verde
+                if (q.tipo === 'lago') {
+                    ctx.fillStyle = '#1a8cff';
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, Math.min(w, h) * 0.45, 0, Math.PI * 2);
+                    ctx.fill();
+                    return;
+                }
+
+                // Pontinhos de prédios
+                ctx.fillStyle = '#3a4a3a';
+                const s = Math.max(2, w * 0.12);
+                [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].forEach(([ox, oy]) => {
+                    ctx.fillRect(cx + ox * s * 1.4 - s / 2, cy + oy * s * 1.4 - s / 2, s, s);
+                });
+            });
+
+            // Polícia = seta azul escura
+            policias.forEach(p => {
+                if (Math.abs(p.x - estado.x) > MINI_RANGE || Math.abs(p.z - estado.z) > MINI_RANGE) return;
+                const pp = worldToMini(p.x, p.z);
+                ctx.save();
+                ctx.translate(pp.x, pp.y);
+                ctx.rotate(p.angle);
+                ctx.fillStyle = '#1a3a8a';
+                ctx.beginPath();
+                ctx.moveTo(0, -6);
+                ctx.lineTo(-4, 4);
+                ctx.lineTo(4, 4);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // Jogador no centro (seta vermelha invertida — ponta para a frente)
+            ctx.save();
+            ctx.translate(W / 2, H / 2);
+            ctx.rotate(estado.angle);
+            ctx.fillStyle = '#ff2222';
+            ctx.beginPath();
+            ctx.moveTo(0, -7);
+            ctx.lineTo(-5, 5);
+            ctx.lineTo(5, 5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        }
+
+        let tempoCapturaGlobal = 0; // tempo contínuo dentro do raio de algum policial
+
+        function reiniciarJogador(msg) {
+            estado.x = 0;
+            estado.z = -half + Math.floor(NUM_BLOCOS / 2) * CELULA;
+            estado.y = 0;
+            estado.vy = 0;
+            estado.pitch = 0;
+            estado.angle = 0;
+            estado.speed = 0;
+            estado.afogando = false;
+            estado.afundaTempo = 0;
+            estado.rollAfunda = 0;
+            carro.rotation.z = 0;
+            tempoCapturaGlobal = 0;
+            superPoderTempo = 0;
+            poderAtual = null;
+            estado.pulosRestantes = 0;
+            policias.forEach((p, i) => {
+                p.x = spawnsPolicia[i].x;
+                p.z = spawnsPolicia[i].z;
+                p.angle = 0;
+                p.speed = 0;
+                p.tempoPerto = 0;
+                p.mesh.position.set(p.x, 0, p.z);
+                p.mesh.rotation.y = 0;
+            });
+            caixasPoder.forEach(c => { c.ativa = true; });
+            moedas.forEach(m => { m.ativa = true; });
+            moedasColetadas = 0;
+            kmRodados = 0;
+            const elM = document.getElementById('moedasInfo');
+            if (elM) elM.textContent = '0';
+            const elP = document.getElementById('pontosInfo');
+            if (elP) elP.textContent = '0';
+            const elK = document.getElementById('kmInfo');
+            if (elK) elK.textContent = '0m';
+            mostrarMensagem(msg || "Reiniciando...");
+        }
+
+        function reiniciarAposCaptura() {
+            reiniciarJogador("🚔 PEGO PELA POLÍCIA! Reiniciando...");
+        }
+
+        function estaNoLago(wx, wz) {
+            for (const l of lagos) {
+                const dx = wx - l.x;
+                const dz = wz - l.z;
+                if (Math.sqrt(dx * dx + dz * dz) < l.raio) return true;
+            }
+            return false;
+        }
+
+        function atualizarPolicias(dt) {
+            let algumPerto = false;
+
+            // As 3 viaturas perseguem e param a 3m (sem atravessar o jogador)
+            const PARAR_EM = 3;
+
+            policias.forEach((p, idx) => {
+                const dist = Math.sqrt(
+                    (estado.x - p.x) ** 2 + (estado.z - p.z) ** 2
+                ) || 0.01;
+
+                // Vira para o jogador
+                const angAlvo = Math.atan2(estado.x - p.x, estado.z - p.z);
+                let diff = angAlvo - p.angle;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                p.angle += Math.max(-0.18, Math.min(0.18, diff));
+
+                if (dist <= PARAR_EM) {
+                    // A 3m → PARA e mantém distância (não atravessa)
+                    p.speed = 0;
+                    const nx = (p.x - estado.x) / dist;
+                    const nz = (p.z - estado.z) / dist;
+                    p.x = estado.x + nx * PARAR_EM;
+                    p.z = estado.z + nz * PARAR_EM;
+                } else {
+                    // Longe → persegue
+                    p.speed += 0.025;
+                    p.speed = Math.min(POLICIA_MAX_SPEED, p.speed);
+
+                    const passoX = Math.sin(p.angle) * p.speed;
+                    const passoZ = Math.cos(p.angle) * p.speed;
+                    const novaDist = Math.sqrt(
+                        (estado.x - (p.x + passoX)) ** 2 +
+                        (estado.z - (p.z + passoZ)) ** 2
+                    );
+
+                    if (novaDist >= PARAR_EM) {
+                        p.x += passoX;
+                        p.z += passoZ;
+                    } else {
+                        // Travou nos 3m
+                        const nx = (p.x - estado.x) / dist;
+                        const nz = (p.z - estado.z) / dist;
+                        p.x = estado.x + nx * PARAR_EM;
+                        p.z = estado.z + nz * PARAR_EM;
+                        p.speed = 0;
+                    }
+                }
+
+                p.mesh.position.set(p.x, 0, p.z);
+                p.mesh.rotation.y = p.angle;
+                p.mesh.visible = true;
+
+                // Fumaça branca do escapamento
+                emitirFumacaPolicia(p.x, 0, p.z, p.angle, p.speed);
+
+                const pisca = Math.sin(performance.now() * 0.015 + idx) > 0;
+                p.luzR.material.emissiveIntensity = pisca ? 1.2 : 0.15;
+                p.luzB.material.emissiveIntensity = pisca ? 0.15 : 1.2;
+
+                if (dist < POLICIA_RAIO) algumPerto = true;
+            });
+
+            // Separação leve (não reduz velocidade — não atrapalha a perseguição)
+            const SEP_MIN = 3.5;
+            for (let i = 0; i < policias.length; i++) {
+                for (let j = i + 1; j < policias.length; j++) {
+                    const a = policias[i];
+                    const b = policias[j];
+                    const dx = a.x - b.x;
+                    const dz = a.z - b.z;
+                    const dist = Math.sqrt(dx * dx + dz * dz) || 0.01;
+                    if (dist < SEP_MIN) {
+                        const push = (SEP_MIN - dist) * 0.5;
+                        const nx = dx / dist;
+                        const nz = dz / dist;
+                        a.x += nx * push;
+                        a.z += nz * push;
+                        b.x -= nx * push;
+                        b.z -= nz * push;
+                        a.mesh.position.set(a.x, 0, a.z);
+                        b.mesh.position.set(b.x, 0, b.z);
+                    }
+                }
+            }
+
+            const polInfo = document.getElementById('policiaInfo');
+            if (poderAtual === 'imune' && superPoderTempo > 0) {
+                tempoCapturaGlobal = 0;
+                polInfo.textContent = '⭐ IMUNE ' + Math.ceil(superPoderTempo) + 's';
+                polInfo.style.color = '#ffee00';
+            } else if (algumPerto) {
+                tempoCapturaGlobal += dt;
+                const resta = Math.max(0, POLICIA_TEMPO_CAPTURA - tempoCapturaGlobal);
+                polInfo.textContent = '🚔 Polícia: ' + resta.toFixed(1) + 's / ' + POLICIA_TEMPO_CAPTURA + 's';
+                polInfo.style.color = resta < 1.5 ? '#ff0000' : '#ffaa00';
+                if (tempoCapturaGlobal >= POLICIA_TEMPO_CAPTURA) {
+                    reiniciarAposCaptura();
+                }
+            } else {
+                tempoCapturaGlobal = Math.max(0, tempoCapturaGlobal - dt * 0.5);
+                if (tempoCapturaGlobal > 0.1) {
+                    polInfo.textContent = '🚔 Escapando: ' + tempoCapturaGlobal.toFixed(1) + 's';
+                    polInfo.style.color = '#88ff88';
+                } else {
+                    polInfo.textContent = '🚔 Polícia: ok';
+                    polInfo.style.color = '#88ff88';
+                }
+            }
+        }
+
+        // ==================== FÍSICA DO CARRO ====================
+        // Escala: speed 1.0 = 180 km/h
+        const estado = {
+            x: 0,
+            z: 0,
+            y: 0,
+            vy: 0,                  // velocidade vertical (queda / salto)
+            pitch: 0,               // inclinação do carro
+            angle: 0,
+            speed: 0,
+            maxSpeed: 0.667,        // 120 km/h
+            maxSpeedRe: 0.333,      // 60 km/h de ré
+            maxSpeedNitro: 1.0,     // 180 km/h com nitro
+            accel: 0.016,
+            friction: 0.010,
+            turnSpeed: 0.022,
+            nitro: false,
+            nitroTempo: 40,
+            nitroMaxTempo: 40,      // 40 segundos de uso
+            nitroRecarga: 0,
+            nitroRecargaMax: 15,    // 15 segundos para recarregar
+            noChao: true,
+            estavaNaRampa: false,
+            ultimoLancamento: 8,
+            ultimoPitchRampa: 0,
+            alturaRampa: 0,
+            pulosRestantes: 0,   // 3 pulos com super poder
+            puloSegurou: false,  // evita spam ao segurar a tecla
+            afogando: false
+        };
+
+        // Garante que o carro começa no meio de uma rua
+        estado.x = 0;
+        estado.z = -half + Math.floor(NUM_BLOCOS/2) * CELULA;
+
+        const keys = {};
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (e.code === 'Escape') {
+                estado.x = 0;
+                estado.z = -half + Math.floor(NUM_BLOCOS/2) * CELULA;
+                estado.y = 0;
+                estado.vy = 0;
+                estado.pitch = 0;
+                estado.angle = 0;
+                estado.speed = 0;
+                mostrarMensagem("Posição reiniciada!");
+            }
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+        // Evita tecla "presa" (ex: A) se a janela perder o foco
+        window.addEventListener('blur', () => {
+            for (const k in keys) keys[k] = false;
+        });
+
+        // ==================== CONTROLE DE VIDEOGAME ====================
+        // Mapeamento:
+        //   L2 = acelerar | R2 = nitro | Analógico esq = direção + ré
+        //   Bolinha (○) = pular | Quadrado (□) = frear
+        function lerControle() {
+            const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+            let gp = null;
+            for (let i = 0; i < gps.length; i++) {
+                if (gps[i]) { gp = gps[i]; break; }
+            }
+            if (!gp) return { accel: 0, brake: 0, reverse: 0, steer: 0, nitro: false, jump: false };
+
+            // Analógico esquerdo: direção (X) e ré (Y para baixo)
+            let steer = gp.axes[0] || 0;
+            let stickY = gp.axes[1] || 0;
+
+            const DEAD = 0.38;
+            if (Math.abs(steer) < DEAD) steer = 0;
+            else steer = Math.sign(steer) * ((Math.abs(steer) - DEAD) / (1 - DEAD));
+            if (Math.abs(stickY) < DEAD) stickY = 0;
+            else stickY = Math.sign(stickY) * ((Math.abs(stickY) - DEAD) / (1 - DEAD));
+
+            // Analógico esquerdo: cima = acelerar, baixo = ré
+            const reverse = stickY > 0 ? Math.min(1, stickY) : 0;
+            const stickAccel = stickY < 0 ? Math.min(1, -stickY) : 0;
+
+            // L1 (botão 4) OU analógico para cima = acelerar
+            let accel = stickAccel;
+            if (gp.buttons[4] && gp.buttons[4].pressed) {
+                accel = Math.max(accel, 1);
+            }
+
+            // Triângulo (PS △ = index 3) / Xbox Y = frear
+            const brake = (gp.buttons[3] && gp.buttons[3].pressed) ? 1 : 0;
+
+            // R1 (botão 5) = nitro
+            let nitro = false;
+            if (gp.buttons[5]) {
+                nitro = gp.buttons[5].pressed;
+            }
+
+            // Bolinha (PS ○ = index 1) / Xbox B = pular
+            const jump = gp.buttons[1] && gp.buttons[1].pressed;
+
+            return {
+                accel: Math.max(0, Math.min(1, accel)),
+                brake,
+                reverse: Math.max(0, Math.min(1, reverse)),
+                steer: Math.max(-1, Math.min(1, steer)),
+                nitro,
+                jump
+            };
+        }
+
+        // Avisa quando conectar controle
+        window.addEventListener('gamepadconnected', (e) => {
+            mostrarMensagem("Controle conectado: " + (e.gamepad.id || "Gamepad"));
+        });
+
+        let ultimoTempo = performance.now();
+
+        function atualizarCarro() {
+            const agora = performance.now();
+            const dt = Math.min(0.05, (agora - ultimoTempo) / 1000); // delta em segundos
+            ultimoTempo = agora;
+
+            const pad = lerControle();
+
+            // ===== NITRO com tempo de uso (30s) e recarga (80s) =====
+            const querNitro = keys['Space'] || pad.nitro;
+
+            // Recarregando?
+            if (estado.nitroRecarga > 0) {
+                estado.nitroRecarga = Math.max(0, estado.nitroRecarga - dt);
+                estado.nitro = false;
+                if (estado.nitroRecarga === 0) {
+                    estado.nitroTempo = estado.nitroMaxTempo; // recarregou completamente
+                    mostrarMensagem("Nitro recarregado!");
+                }
+            } else if (querNitro && estado.speed > 0.1 && estado.nitroTempo > 0) {
+                // Usando nitro
+                estado.nitro = true;
+                estado.nitroTempo -= dt;
+                if (estado.nitroTempo <= 0) {
+                    estado.nitroTempo = 0;
+                    estado.nitro = false;
+                    estado.nitroRecarga = estado.nitroRecargaMax; // começa a recarregar
+                    mostrarMensagem("Nitro esgotado! Recarregando...");
+                }
+            } else {
+                estado.nitro = false;
+            }
+
+            // Aceleração
+            const accelAtual = estado.nitro ? estado.accel * 1.8 : estado.accel;
+
+            // Freio (Quadrado/S) tem prioridade total — cancela aceleração enquanto pressionado
+            const freando    = keys['ArrowDown'] || keys['KeyS'] || pad.brake > 0.1;
+            const acelerando = !freando && (keys['ArrowUp'] || keys['KeyW'] || pad.accel > 0.1);
+            const dandoRe    = !freando && pad.reverse > 0.1;
+
+            if (freando) {
+                // Freia mesmo se estiver acelerando; só volta a acelerar ao soltar
+                estado.speed *= 0.12;
+                if (Math.abs(estado.speed) < 0.02) estado.speed = 0;
+            } else if (acelerando) {
+                const forca = pad.accel > 0.1 ? pad.accel : 1;
+                estado.speed += accelAtual * forca;
+            } else if (dandoRe) {
+                estado.speed -= estado.accel * 0.9 * pad.reverse;
+            } else {
+                if (estado.speed > 0) estado.speed = Math.max(0, estado.speed - estado.friction);
+                else if (estado.speed < 0) estado.speed = Math.min(0, estado.speed + estado.friction);
+            }
+
+            // Limites de velocidade
+            const maxFrente = estado.nitro ? estado.maxSpeedNitro : estado.maxSpeed;
+            estado.speed = Math.max(-estado.maxSpeedRe, Math.min(maxFrente, estado.speed));
+
+            // Direção: teclado OU L3 esquerda/direita
+            if (Math.abs(estado.speed) > 0.02) {
+                const fator = Math.min(1, Math.abs(estado.speed) / estado.maxSpeed);
+
+                if (keys['ArrowLeft'] || keys['KeyA']) estado.angle += estado.turnSpeed * fator;
+                if (keys['ArrowRight'] || keys['KeyD']) estado.angle -= estado.turnSpeed * fator;
+
+                // Só vira com stick se passar da deadzone (evita curva sozinha)
+                if (Math.abs(pad.steer) > 0.2) {
+                    estado.angle -= pad.steer * estado.turnSpeed * fator * 1.0;
+                }
+            }
+
+            // Movimento: colisão com prédios e lagos (no chão) — polícia NÃO trava
+            const nextX = estado.x + Math.sin(estado.angle) * estado.speed;
+            const nextZ = estado.z + Math.cos(estado.angle) * estado.speed;
+
+            function colidePredio(x, z) {
+                for (const b of prediosColisao) {
+                    if (Math.abs(x - b.x) < b.w && Math.abs(z - b.z) < b.d) return true;
+                }
+                return false;
+            }
+
+            // Lago NÃO bloqueia mais: ao entrar, a física de afundamento cuida
+            function colideBloqueio(x, z) {
+                return colidePredio(x, z);
+            }
+
+            if (!estado.afogando) {
+                if (!colideBloqueio(nextX, nextZ)) {
+                    estado.x = nextX;
+                    estado.z = nextZ;
+                } else if (!colideBloqueio(nextX, estado.z)) {
+                    estado.x = nextX;
+                } else if (!colideBloqueio(estado.x, nextZ)) {
+                    estado.z = nextZ;
+                }
+            }
+
+            // Barreira invisível — não deixa chegar na areia/oceano
+            estado.x = Math.max(-BARREIRA_LIMITE, Math.min(BARREIRA_LIMITE, estado.x));
+            estado.z = Math.max(-BARREIRA_LIMITE, Math.min(BARREIRA_LIMITE, estado.z));
+
+            // Distância percorrida
+            kmRodados += Math.abs(estado.speed) * 0.05 * dt;
+            const elK = document.getElementById('kmInfo');
+            if (elK) {
+                const metros = Math.round(kmRodados * 1000);
+                elK.textContent = metros >= 1000 ? (kmRodados.toFixed(1) + 'km') : (metros + 'm');
+            }
+
+            // Fogo vermelho no escapamento
+            emitirFogoJogador();
+
+            // ===== FÍSICA DE RAMPAS + PULO =====
+            const chao = alturaNoChao(estado.x, estado.z);
+            const GRAVIDADE = 11;
+            const FORCA_PULO = 9.5;
+
+            // Pulo só se sorteou o poder 'pulo' na caixa — 3 pulos (no ar também)
+            const querPular = keys['KeyF'] || pad.jump;
+            if (querPular && !estado.puloSegurou) {
+                if (poderAtual === 'pulo' && estado.pulosRestantes > 0) {
+                    estado.vy = FORCA_PULO;
+                    estado.noChao = false;
+                    estado.y = Math.max(estado.y, chao.h) + 0.08;
+                    estado.pulosRestantes--;
+                    estado.puloSegurou = true;
+                    if (estado.pulosRestantes <= 0) poderAtual = null;
+                }
+            }
+            if (!querPular) estado.puloSegurou = false;
+
+            // Guarda dados da rampa enquanto sobe
+            if (chao.onRamp) {
+                estado.ultimoPitchRampa = chao.pitch || 0;
+                estado.alturaRampa = chao.h;
+            }
+
+            // Pulo natural da rampa (sem lançamento fixo) — só pela inclinação + velocidade
+            if (estado.estavaNaRampa && !chao.onRamp && estado.alturaRampa > 0.8 && Math.abs(estado.speed) > 0.08) {
+                const ang = Math.abs(estado.ultimoPitchRampa) || 0.2;
+                const vel = Math.abs(estado.speed);
+                estado.vy = vel * 40 * Math.sin(ang);
+                estado.noChao = false;
+                estado.y = Math.max(estado.y, estado.alturaRampa + 0.1);
+            }
+            estado.estavaNaRampa = chao.onRamp && chao.h > 0.2;
+
+            // Só cola no chão/rampa se estiver realmente em cima
+            const alturaAlvo = chao.onRamp ? chao.h : 0;
+            if (estado.noChao && estado.y <= alturaAlvo + 0.2) {
+                if (estado.vy < 0) estado.vy = 0;
+                estado.y = alturaAlvo;
+                estado.noChao = true;
+
+                let targetPitch = 0;
+                if (chao.onRamp && chao.pitch !== 0) {
+                    targetPitch = chao.pitch;
+                }
+                estado.pitch += (targetPitch - estado.pitch) * 0.18;
+            } else {
+                // No ar — gravidade
+                estado.noChao = false;
+                estado.vy -= GRAVIDADE * dt;
+                estado.y += estado.vy * dt;
+                estado.pitch += (0 - estado.pitch) * 0.05;
+
+                const chaoAr = chao.onRamp ? chao.h : 0;
+                if (estado.y < chaoAr) {
+                    estado.y = chaoAr;
+                    estado.vy = 0;
+                    estado.noChao = true;
+                }
+            }
+
+            // ===== FÍSICA DE AFUNDAMENTO (lago / oceano) =====
+            // Ao chegar na água: desacelera em 2s e afunda por completo
+            if (!estado.afogando && estado.y < 1.5) {
+                if (estaNoLago(estado.x, estado.z) || estaNoOceano(estado.x, estado.z)) {
+                    estado.afogando = true;
+                    estado.afundaTempo = 0;
+                    estado.speedAoCair = estado.speed; // velocidade no momento da entrada
+                    estado.vy = Math.min(estado.vy, 0);
+                    estado.rollAfunda = 0;
+                    const noOceano = estaNoOceano(estado.x, estado.z) && !estaNoLago(estado.x, estado.z);
+                    mostrarMensagem(noOceano ? '🌊 Mar e para peixe' : '💧 Mar e para peixe');
+                }
+            }
+            if (estado.afogando) {
+                estado.afundaTempo = (estado.afundaTempo || 0) + dt;
+                const t = estado.afundaTempo;
+                const v0 = estado.speedAoCair || 0;
+
+                // 0–2s: desacelera até parar e afunda por completo
+                if (t < 2.0) {
+                    const k = 1 - (t / 2.0); // 1 → 0 em 2 segundos
+                    estado.speed = v0 * k * k; // desacelera (curva suave)
+                    // Continua andando enquanto freia
+                    estado.x += Math.sin(estado.angle) * estado.speed;
+                    estado.z += Math.cos(estado.angle) * estado.speed;
+                    // Afundamento completo: y vai de 0 até -3.5 em 2s
+                    const afunda = (t / 2.0) * (t / 2.0); // 0 → 1
+                    estado.y = -3.5 * afunda;
+                    estado.pitch += (-1.1 - estado.pitch) * 2.5 * dt;
+                    estado.rollAfunda = 0.15 * Math.sin(t * 5) + 0.55 * afunda;
+                } else {
+                    // Totalmente afundado e parado
+                    estado.speed = 0;
+                    estado.y = -3.5 - (t - 2.0) * 1.5;
+                    if (t > 2.7) {
+                        reiniciarJogador('🔧 Motor estragou! Reiniciando...');
+                    }
+                }
+
+                // Bolhas enquanto afunda
+                if (Math.random() < 0.4) {
+                    const bolha = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.08 + Math.random() * 0.12, 6, 6),
+                        new THREE.MeshBasicMaterial({ color: 0xaaddff, transparent: true, opacity: 0.55 })
+                    );
+                    bolha.position.set(
+                        estado.x + (Math.random() - 0.5) * 1.5,
+                        Math.max(estado.y, -1) + 0.3,
+                        estado.z + (Math.random() - 0.5) * 1.5
+                    );
+                    scene.add(bolha);
+                    const sobe = setInterval(() => {
+                        bolha.position.y += 0.12;
+                        bolha.material.opacity -= 0.04;
+                        if (bolha.material.opacity <= 0) {
+                            scene.remove(bolha);
+                            clearInterval(sobe);
+                        }
+                    }, 40);
+                }
+            }
+
+            // Atualiza mesh
+            carro.position.set(estado.x, estado.y, estado.z);
+            carro.rotation.order = 'YXZ';
+            carro.rotation.y = estado.angle;
+            carro.rotation.x = estado.pitch;
+            carro.rotation.z = estado.afogando ? (estado.rollAfunda || 0) : 0;
+
+            // Gira as rodas
+            const rotSpeed = estado.speed * 3;
+            rodas.forEach(r => r.rotation.x += rotSpeed);
+
+            // Velocidade na UI
+            const kmh = Math.abs(Math.round(estado.speed * 180));
+            const velEl = document.getElementById('velocidade');
+            velEl.textContent = kmh + ' km/h';
+            velEl.style.color = estado.nitro ? '#ff4400' : '#ffffff';
+
+            // UI do nitro
+            const nitroInfo = document.getElementById('nitroInfo');
+            const nitroFill = document.getElementById('nitroFill');
+            if (estado.nitroRecarga > 0) {
+                nitroInfo.textContent = 'Recarregando: ' + Math.ceil(estado.nitroRecarga) + 's';
+                nitroInfo.style.color = '#888888';
+                nitroFill.style.width = ((1 - estado.nitroRecarga / estado.nitroRecargaMax) * 100) + '%';
+                nitroFill.style.background = 'linear-gradient(90deg, #555, #888)';
+            } else {
+                nitroInfo.textContent = estado.nitro
+                    ? '🔥 NITRO: ' + Math.ceil(estado.nitroTempo) + 's'
+                    : 'Nitro: ' + Math.ceil(estado.nitroTempo) + 's';
+                nitroInfo.style.color = estado.nitro ? '#ff4400' : '#ffaa00';
+                nitroFill.style.width = (estado.nitroTempo / estado.nitroMaxTempo * 100) + '%';
+                nitroFill.style.background = 'linear-gradient(90deg, #ff6600, #ffaa00)';
+            }
+        }
+
+        // ==================== CÂMERA ====================
+        function atualizarCamera() {
+            const dist = 10;
+            const altura = 4.5;
+
+            // Se estiver de ré (speed < 0), a câmera vira 180°
+            const anguloCam = estado.speed < -0.02
+                ? estado.angle + Math.PI   // 180 graus quando de ré
+                : estado.angle;
+
+            const camX = estado.x - Math.sin(anguloCam) * dist;
+            const camZ = estado.z - Math.cos(anguloCam) * dist;
+            const camY = estado.y + altura;
+
+            camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.12);
+            camera.lookAt(estado.x, estado.y + 1.2, estado.z);
+        }
+
+        // ==================== MENSAGENS ====================
+        function mostrarMensagem(texto) {
+            const el = document.getElementById('mensagem');
+            el.textContent = texto;
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 1800);
+        }
+
+        // ==================== RESIZE ====================
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ==================== LOOP ====================
+        function animate() {
+            requestAnimationFrame(animate);
+            const agora = performance.now();
+            const dtPol = Math.min(0.05, (agora - (animate._last || agora)) / 1000);
+            animate._last = agora;
+            atualizarCarro();
+            atualizarPolicias(dtPol);
+            atualizarCaixasPoder(dtPol);
+            atualizarMoedas(dtPol);
+            atualizarFogo(dtPol);
+            atualizarFumacaPolicia(dtPol);
+            desenharMinimapa();
+            // Nuvens se movem devagar
+            nuvens.forEach(n => {
+                n.mesh.position.x += n.vel * dtPol;
+                if (n.mesh.position.x > 800) n.mesh.position.x = -800;
+            });
+            atualizarAviao(dtPol);
+            atualizarNavios(dtPol);
+            atualizarPassaros(dtPol);
+            atualizarCamera();
+            renderer.render(scene, camera);
+        }
+
+        // Posição inicial da câmera
+        camera.position.set(0, 6, -12);
+        camera.lookAt(0, 0, 0);
+
+        mostrarMensagem("Acelere com W ou ↑");
+        animate();
+    </script>
+</body>
+</html>
